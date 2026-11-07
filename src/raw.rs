@@ -816,7 +816,8 @@ impl<K, V> RawList<K, V> {
   /// consistent if `f` panics.
   pub(crate) fn retain(&mut self, mut f: impl FnMut(&K, &mut V) -> bool) {
     unsafe {
-      let head = self.head();
+      let list: *mut Self = self;
+      let head = (*list).head.as_ptr();
       let mut last = [(head, 0usize); MAX_HEIGHT];
       let mut start = 0usize;
       let mut cur = next(head, 0);
@@ -826,7 +827,7 @@ impl<K, V> RawList<K, V> {
         let kept;
         {
           let _guard = RetainGuard {
-            list: self as *mut Self,
+            list,
             node: cur,
             preds: last,
           };
@@ -840,14 +841,14 @@ impl<K, V> RawList<K, V> {
             let n = len(cur);
             shift_entries(cur, i + 1, i, n - i - 1);
             set_len(cur, n - 1);
-            for (level, last) in last.iter().enumerate().take(self.height) {
+            for (level, last) in last.iter().enumerate().take((*list).height) {
               let pred = if level < xh { cur } else { last.0 };
               let pl = link(pred, level);
               if !(*pl).next.is_null() {
                 (*pl).width -= 1;
               }
             }
-            self.len -= 1;
+            (*list).len -= 1;
           }
           kept = len(cur);
         }
