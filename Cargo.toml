@@ -1,0 +1,29 @@
+[package]
+name        = "xskiplist"
+version     = "0.2.0"
+authors     = ["Norm O <normo.pub@gmail.com>"]
+description = "Fast skiplist collections: a sorted map, a sorted set, a sorted list with duplicates and an indexable list."
+keywords    = ["collection", "skiplist", "sorted", "map", "list"]
+categories  = ["data-structures"]
+repository  = "https://github.com/normano/xskiplist"
+readme      = "README.md"
+license     = "MPL-2.0"
+edition     = "2024"
+include     = ["/src/**", "/Cargo.toml", "/LICENSE", "/README.md"]
+
+[dependencies]
+parking_lot = "0.13"
+
+[dev-dependencies]
+criterion = "0.8"
+skiplist  = "2"
+
+[[bench]]
+name    = "prelim"
+harness = false
+
+[profile.release]
+debug = true
+
+[profile.bench]
+debug = true
