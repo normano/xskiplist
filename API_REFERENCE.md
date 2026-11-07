@@ -248,8 +248,7 @@ Trait implementations: `Default`, `Clone` (`T: Clone`), `FromIterator<T>` (input
 |---|---|
 | lookup by key, insert, remove, `entry` | O(log n) expected |
 | access by index, `rank`, `count` | O(log n) expected |
-| `push_front`, `pop_first`, `pop_front` | O(1) expected |
-| `push_back`, `pop_back`, `pop_last` | O(log n) expected |
+| `push_front`, `pop_first`, `pop_front`, `push_back`, `pop_back`, `pop_last` | O(log n) expected |
 | `split_off`, `split_off_index` | O(log n) expected |
 | `append` with the second structure wholly after the first | O(log n) expected |
 | `append` otherwise (map, set, ordered list) | O(n + m) |
@@ -257,11 +256,11 @@ Trait implementations: `Default`, `Clone` (`T: Clone`), `FromIterator<T>` (input
 | iteration, `retain`, `clear`, drop, `clone`, `FromIterator` from sorted input | O(n) |
 | `FromIterator` from unsorted input (map, set, ordered list) | O(n log n) |
 
-Tower heights are drawn with probability 1/4 per extra level and capped at 24 levels.
+Tower heights are drawn with probability 1/4 per extra level and capped at 24 levels. The expected costs count nodes; the binary search inside a node adds O(log c) comparisons, where c is the node capacity below.
 
 ### Memory
 
-A node holds its key, its value, a back pointer, its height and two words per tower level. Nodes are allocated from slabs owned by the structure, one slab per tower height, growing by doubling from 8 slots up to 1024 per chunk. Freed nodes are reused by the same structure. Structures related by `split_off` or `append` share one pool of chunks that is released when the last of them is dropped or cleared; `clear` releases the chunks only when no other structure shares them.
+A node holds between 1 and c entries, where c is 512 divided by the size in bytes of one key plus one value, clamped to between 4 and 32. Zero-sized entries get 32. A node is allocated for c entries, a back pointer, its length, its height and two words per tower level. A full node splits in half on insert. A node is freed when its last entry is removed; nodes are not merged. Nodes are allocated from slabs owned by the structure, one slab per tower height, growing by doubling from 8 slots up to 1024 per chunk. Freed nodes are reused by the same structure. Structures related by `split_off` or `append` share one pool of chunks that is released when the last of them is dropped or cleared; `clear` releases the chunks only when no other structure shares them.
 
 ### Thread safety
 

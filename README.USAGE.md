@@ -33,6 +33,7 @@ This guide shows how to use the four collections in `xskiplist`: `SkipMap`, `Ski
 ## Core Concepts
 
 * **Skiplist**: a sorted linked list where each node also carries links that skip ahead over many nodes, so a search walks about log n links instead of n.
+* **Node**: a block of up to 32 consecutive elements stored side by side, fewer for large elements. The skiplist links nodes rather than elements. A search ends with a binary search inside one node.
 * **Tower**: the set of forward links one node carries. Its height is random, drawn with probability 1/4 per extra level, up to 24.
 * **Link width**: every link records how many elements it skips, so every structure can find the element at a given index and report the index of a given element in O(log n).
 * **Position**: the 0-based index of an element in order. `SkipList` and `OrderedSkipList` expose it; `SkipMap` and `SkipSet` use it internally for ranges.
@@ -418,10 +419,11 @@ assert_eq!(grown.len(), 3);
 
 ## What to Expect from Performance
 
-* Lookup, insert, remove, index access, rank, split and append are O(log n) on average. Iteration is O(n). Towers are drawn with probability 1/4 per level, capped at 24, so a structure of a million elements has a height around ten.
+* Lookup, insert, remove, index access, rank, split and append are O(log n) on average. Iteration is O(n). Towers are drawn with probability 1/4 per level, capped at 24. A node holds up to 32 elements, so a structure of a million small elements has around forty thousand nodes and a height around eight.
+* A node holds about 512 bytes of elements: 32 of them for keys and values of 8 bytes each, down to 4 for large ones. Iteration and range scans walk these blocks, which makes a full scan faster than scanning a `BTreeMap`. Point lookups and updates on large structures take up to about twice as long as on a `BTreeMap`, because the descent through the towers is longer than a B-tree's.
 * Nodes live in per-height slabs owned by the structure, so inserts and removes do not call the global allocator once a slab has grown. Clearing or dropping a structure frees memory in large blocks.
-* A node costs its key and value plus three words of header plus two words per level of its tower, averaging about four words of links.
-* Iteration and range scans follow pointers from node to node. On large structures this is several times slower than scanning a `BTreeMap`, whose nodes hold many keys each. Point operations on large structures are within a small factor of `BTreeMap`.
+* A node is allocated for its full capacity, plus three words of header and two words per level of its tower. Collecting from an iterator fills every node, so memory is close to the size of the elements themselves. Random inserts split full nodes in half and leave them on average about three quarters full.
+* A node is freed when its last element is removed. Nodes are never merged, so a structure that has lost most of its elements to scattered removals keeps part-filled nodes until it is rebuilt with `collect` or `clone`.
 * `SkipList::push_back`, `pop_back` and `insert` near the end descend from the head like any other position.
 
 ## Error Handling
