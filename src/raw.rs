@@ -124,11 +124,18 @@ impl<K, V> RawList<K, V> {
     self.tail as Ptr<K, V>
   }
 
+  /// An unfilled path for this list, to hand to [`path_where`](Self::path_where),
+  /// [`search`](Self::search) or [`path_to`](Self::path_to). The caller owns it so that the
+  /// 400-byte record is never moved.
+  #[inline(always)]
+  pub(crate) fn path(&self) -> Path<K, V> {
+    Path::new(self.head(), self.height)
+  }
+
   /// Walks down moving right while `go_right(next.key)` holds and records where each level stops.
   #[inline(always)]
-  pub(crate) unsafe fn path_where(&self, mut go_right: impl FnMut(&K) -> bool) -> Path<K, V> {
+  pub(crate) unsafe fn path_where(&self, mut go_right: impl FnMut(&K) -> bool, path: &mut Path<K, V>) {
     unsafe {
-      let mut path = Path::new(self.head(), self.height);
       let mut x = self.head();
       let mut pos = 0;
       let mut bound: Ptr<K, V> = ptr::null_mut();
@@ -150,16 +157,15 @@ impl<K, V> RawList<K, V> {
         }
         path.set(level, x, pos);
       }
-      path
     }
   }
 
   /// Like [`path_where`](Self::path_where) with `cmp(key) == Less` as the go-right test, except
-  /// that a key comparing `Equal` ends the walk at once with that node.
+  /// that a key comparing `Equal` ends the walk at once and returns that node, leaving `path`
+  /// partly filled.
   #[inline(always)]
-  pub(crate) unsafe fn search(&self, mut cmp: impl FnMut(&K) -> Ordering) -> Result<Path<K, V>, Ptr<K, V>> {
+  pub(crate) unsafe fn search(&self, mut cmp: impl FnMut(&K) -> Ordering, path: &mut Path<K, V>) -> Option<Ptr<K, V>> {
     unsafe {
-      let mut path = Path::new(self.head(), self.height);
       let mut x = self.head();
       let mut pos = 0;
       let mut bound: Ptr<K, V> = ptr::null_mut();
@@ -176,7 +182,7 @@ impl<K, V> RawList<K, V> {
               pos += l.width;
               x = l.next;
             }
-            Ordering::Equal => return Err(l.next),
+            Ordering::Equal => return Some(l.next),
             Ordering::Greater => {
               bound = l.next;
               break;
@@ -185,7 +191,7 @@ impl<K, V> RawList<K, V> {
         }
         path.set(level, x, pos);
       }
-      Ok(path)
+      None
     }
   }
 
@@ -217,11 +223,10 @@ impl<K, V> RawList<K, V> {
     }
   }
 
-  /// Path whose every level stops at the last node with position below `target`.
+  /// Fills `path` so that every level stops at the last node with position below `target`.
   #[inline(always)]
-  pub(crate) unsafe fn path_to(&self, target: usize) -> Path<K, V> {
+  pub(crate) unsafe fn path_to(&self, target: usize, path: &mut Path<K, V>) {
     unsafe {
-      let mut path = Path::new(self.head(), self.height);
       let mut x = self.head();
       let mut pos = 0;
       let mut level = self.height;
@@ -237,7 +242,6 @@ impl<K, V> RawList<K, V> {
         }
         path.set(level, x, pos);
       }
-      path
     }
   }
 
@@ -400,7 +404,8 @@ impl<K, V> RawList<K, V> {
       return None;
     }
     unsafe {
-      let path = self.path_to(self.len);
+      let mut path = self.path();
+      self.path_to(self.len, &mut path);
       Some(self.unlink(node, &path))
     }
   }
@@ -414,7 +419,8 @@ impl<K, V> RawList<K, V> {
 
   pub(crate) fn push_back(&mut self, key: K, value: V) -> Ptr<K, V> {
     unsafe {
-      let path = self.path_to(self.len + 1);
+      let mut path = self.path();
+      self.path_to(self.len + 1, &mut path);
       self.insert_at(&path, key, value)
     }
   }
@@ -464,7 +470,8 @@ impl<K, V> RawList<K, V> {
       return;
     }
     unsafe {
-      let path = self.path_to(self.len + 1);
+      let mut path = self.path();
+      self.path_to(self.len + 1, &mut path);
       let n = self.len;
       let other_head = other.head();
       for level in 0..other.height {

@@ -139,9 +139,10 @@ impl<K, V> SkipMap<K, V> {
     K: Ord,
   {
     unsafe {
-      match self.raw.search(|k| k.cmp(&key)) {
-        Err(n) => Some(mem::replace(&mut (*n).value, value)),
-        Ok(path) => {
+      let mut path = self.raw.path();
+      match self.raw.search(|k| k.cmp(&key), &mut path) {
+        Some(n) => Some(mem::replace(&mut (*n).value, value)),
+        None => {
           self.raw.insert_at(&path, key, value);
           None
         }
@@ -157,9 +158,10 @@ impl<K, V> SkipMap<K, V> {
     V: Default,
   {
     unsafe {
-      match self.raw.search(|k| k.cmp(&key)) {
-        Err(n) => Some(mem::replace(&mut (*n).key, key)),
-        Ok(path) => {
+      let mut path = self.raw.path();
+      match self.raw.search(|k| k.cmp(&key), &mut path) {
+        Some(n) => Some(mem::replace(&mut (*n).key, key)),
+        None => {
           self.raw.insert_at(&path, key, V::default());
           None
         }
@@ -183,7 +185,8 @@ impl<K, V> SkipMap<K, V> {
     Q: Ord + ?Sized,
   {
     unsafe {
-      let path = self.raw.path_where(|k| k.borrow() < key);
+      let mut path = self.raw.path();
+      self.raw.path_where(|k| k.borrow() < key, &mut path);
       let n = next(path.node(), 0);
       if n.is_null() || (*n).key.borrow() != key {
         return None;
@@ -198,9 +201,10 @@ impl<K, V> SkipMap<K, V> {
     K: Ord,
   {
     unsafe {
-      match self.raw.search(|k| k.cmp(&key)) {
-        Err(n) => Entry::Occupied(OccupiedEntry { map: self, node: n }),
-        Ok(path) => Entry::Vacant(VacantEntry { map: self, key, path }),
+      let mut path = self.raw.path();
+      match self.raw.search(|k| k.cmp(&key), &mut path) {
+        Some(n) => Entry::Occupied(OccupiedEntry { map: self, node: n }),
+        None => Entry::Vacant(VacantEntry { map: self, key, path }),
       }
     }
   }
@@ -221,7 +225,8 @@ impl<K, V> SkipMap<K, V> {
     Q: Ord + ?Sized,
   {
     unsafe {
-      let path = self.raw.path_where(|k| k.borrow() < key);
+      let mut path = self.raw.path();
+      self.raw.path_where(|k| k.borrow() < key, &mut path);
       SkipMap {
         raw: self.raw.split_off(&path),
       }
@@ -559,7 +564,8 @@ impl<K: Ord, V> OccupiedEntry<'_, K, V> {
   pub fn remove_entry(self) -> (K, V) {
     unsafe {
       let key: *const K = &(*self.node).key;
-      let path = self.map.raw.path_where(|k| k < &*key);
+      let mut path = self.map.raw.path();
+      self.map.raw.path_where(|k| k < &*key, &mut path);
       self.map.raw.unlink(self.node, &path)
     }
   }

@@ -105,7 +105,8 @@ impl<T> SkipList<T> {
     let len = self.len();
     assert!(index <= len, "insertion index (is {index}) should be <= len (is {len})");
     unsafe {
-      let path = self.raw.path_to(index + 1);
+      let mut path = self.raw.path();
+      self.raw.path_to(index + 1, &mut path);
       self.raw.insert_at(&path, value, ());
     }
   }
@@ -119,7 +120,8 @@ impl<T> SkipList<T> {
     let len = self.len();
     assert!(index < len, "removal index (is {index}) should be < len (is {len})");
     unsafe {
-      let path = self.raw.path_to(index + 1);
+      let mut path = self.raw.path();
+      self.raw.path_to(index + 1, &mut path);
       let node = next(path.node(), 0);
       self.raw.unlink(node, &path).0
     }
@@ -135,7 +137,8 @@ impl<T> SkipList<T> {
     let len = self.len();
     assert!(at <= len, "split index (is {at}) should be <= len (is {len})");
     unsafe {
-      let path = self.raw.path_to(at + 1);
+      let mut path = self.raw.path();
+      self.raw.path_to(at + 1, &mut path);
       SkipList {
         raw: self.raw.split_off(&path),
       }

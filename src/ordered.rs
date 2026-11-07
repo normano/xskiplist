@@ -64,7 +64,8 @@ impl<T> OrderedSkipList<T> {
     T: Ord,
   {
     unsafe {
-      let path = self.raw.path_where(|k| k <= &value);
+      let mut path = self.raw.path();
+      self.raw.path_where(|k| k <= &value, &mut path);
       self.raw.insert_at(&path, value, ());
     }
   }
@@ -130,7 +131,8 @@ impl<T> OrderedSkipList<T> {
     Q: Ord + ?Sized,
   {
     unsafe {
-      let path = self.raw.path_where(|k| k.borrow() < value);
+      let mut path = self.raw.path();
+      self.raw.path_where(|k| k.borrow() < value, &mut path);
       let n = next(path.node(), 0);
       if n.is_null() || (*n).key.borrow() != value {
         return None;
@@ -150,7 +152,8 @@ impl<T> OrderedSkipList<T> {
       if pos == 0 || (*n).key.borrow() != value {
         return None;
       }
-      let path = self.raw.path_to(pos);
+      let mut path = self.raw.path();
+      self.raw.path_to(pos, &mut path);
       Some(self.raw.unlink(n, &path).0)
     }
   }
@@ -164,7 +167,8 @@ impl<T> OrderedSkipList<T> {
     let len = self.len();
     assert!(index < len, "removal index (is {index}) should be < len (is {len})");
     unsafe {
-      let path = self.raw.path_to(index + 1);
+      let mut path = self.raw.path();
+      self.raw.path_to(index + 1, &mut path);
       let node = next(path.node(), 0);
       self.raw.unlink(node, &path).0
     }
@@ -188,7 +192,8 @@ impl<T> OrderedSkipList<T> {
     Q: Ord + ?Sized,
   {
     unsafe {
-      let path = self.raw.path_where(|k| k.borrow() < value);
+      let mut path = self.raw.path();
+      self.raw.path_where(|k| k.borrow() < value, &mut path);
       OrderedSkipList {
         raw: self.raw.split_off(&path),
       }
@@ -205,7 +210,8 @@ impl<T> OrderedSkipList<T> {
     let len = self.len();
     assert!(at <= len, "split index (is {at}) should be <= len (is {len})");
     unsafe {
-      let path = self.raw.path_to(at + 1);
+      let mut path = self.raw.path();
+      self.raw.path_to(at + 1, &mut path);
       OrderedSkipList {
         raw: self.raw.split_off(&path),
       }
