@@ -1,4 +1,5 @@
 use super::OrderedSkipList;
+use crate::test_util::scaled;
 use std::cmp::Ordering;
 
 struct Rng(u64);
@@ -68,7 +69,7 @@ fn random_operations_match_sorted_vec() {
     let mut rng = Rng(0xD00D ^ key_space);
     let mut list = OrderedSkipList::new();
     let mut oracle: Vec<Item> = Vec::new();
-    for step in 0..8000u64 {
+    for step in 0..scaled(8000u64) {
       let key = rng.below(key_space);
       let p = probe(key);
       let lower = oracle.partition_point(|x| x.key < key);

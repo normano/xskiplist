@@ -1,4 +1,5 @@
 use super::SkipMap;
+use crate::test_util::scaled;
 use std::cell::Cell;
 use std::collections::BTreeMap;
 use std::ops::Bound;
@@ -40,7 +41,7 @@ fn random_operations_match_btreemap() {
       let mut rng = Rng(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15));
       let mut map = SkipMap::new();
       let mut oracle = BTreeMap::new();
-      for step in 0..4000 {
+      for step in 0..scaled(4000) {
         let key = rng.below(key_space);
         let value = rng.next();
         match rng.below(10) {
@@ -81,7 +82,7 @@ fn ranges_match_btreemap() {
     1 => Bound::Included(rng.below(410)),
     _ => Bound::Excluded(rng.below(410)),
   };
-  for _ in 0..3000 {
+  for _ in 0..scaled(3000) {
     let range = (bound(&mut rng), bound(&mut rng));
     let expected = catch_unwind(|| oracle.range(range).map(|(k, v)| (*k, *v)).collect::<Vec<_>>());
     let actual = catch_unwind(AssertUnwindSafe(|| {
@@ -333,19 +334,20 @@ fn over_aligned_and_zero_sized_types() {
 #[test]
 fn large_sequential_and_reverse_inserts() {
   let mut map = SkipMap::new();
-  for k in 0..20_000u32 {
+  let n = scaled(20_000u32);
+  for k in 0..n {
     map.insert(k, k);
   }
-  for k in (20_000..40_000u32).rev() {
+  for k in (n..2 * n).rev() {
     map.insert(k, k);
   }
   map.check_invariants();
-  assert!(map.keys().copied().eq(0..40_000));
-  for k in (0..40_000u32).step_by(2) {
+  assert!(map.keys().copied().eq(0..2 * n));
+  for k in (0..2 * n).step_by(2) {
     assert_eq!(map.remove(&k), Some(k));
   }
   map.check_invariants();
-  assert_eq!(map.len(), 20_000);
+  assert_eq!(map.len(), n as usize);
 }
 
 #[test]
@@ -367,7 +369,7 @@ fn entry_matches_btreemap() {
   let mut rng = Rng(0xE7);
   let mut map: SkipMap<u64, u64> = SkipMap::new();
   let mut oracle: BTreeMap<u64, u64> = BTreeMap::new();
-  for step in 0..5000u64 {
+  for step in 0..scaled(5000u64) {
     let key = rng.below(200);
     match rng.below(5) {
       0 => {
@@ -411,7 +413,7 @@ fn split_off_and_append_match_btreemap() {
   let mut rng = Rng(0x5A);
   let mut map: SkipMap<u64, u64> = SkipMap::new();
   let mut oracle: BTreeMap<u64, u64> = BTreeMap::new();
-  for step in 0..3000u64 {
+  for step in 0..scaled(3000u64) {
     let key = rng.below(1000);
     match rng.below(4) {
       0 | 1 => assert_eq!(map.insert(key, step), oracle.insert(key, step)),

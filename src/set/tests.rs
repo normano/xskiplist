@@ -1,4 +1,5 @@
 use super::SkipSet;
+use crate::test_util::scaled;
 use std::collections::BTreeSet;
 use std::ops::Bound;
 
@@ -27,7 +28,7 @@ fn random_operations_match_btreeset() {
   let mut rng = Rng(0x5eed);
   let mut set = SkipSet::new();
   let mut oracle = BTreeSet::new();
-  for step in 0..20_000 {
+  for step in 0..scaled(20_000) {
     let v = rng.below(512);
     match rng.below(8) {
       0..=2 => assert_eq!(set.insert(v), oracle.insert(v)),

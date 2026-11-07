@@ -1,4 +1,5 @@
 use super::SkipList;
+use crate::test_util::scaled;
 use std::cell::Cell;
 use std::collections::VecDeque;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -38,7 +39,7 @@ fn random_operations_match_vecdeque() {
     let mut rng = Rng(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15));
     let mut list = SkipList::new();
     let mut oracle = VecDeque::new();
-    for step in 0..6000 {
+    for step in 0..scaled(6000) {
       let value = rng.next();
       let len = oracle.len();
       match rng.below(12) {
