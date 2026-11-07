@@ -1,6 +1,6 @@
 [package]
 name        = "xskiplist"
-version     = "0.2.0"
+version     = "0.9.0"
 authors     = ["Norm O <normo.pub@gmail.com>"]
 description = "High Performance Skip List collections: a sorted map, a sorted set, a sorted list with duplicates and an indexable list."
 keywords    = ["collection", "skiplist", "sorted", "map", "list"]
@@ -11,15 +11,37 @@ license     = "MPL-2.0"
 edition     = "2024"
 include     = ["/src/**", "/Cargo.toml", "/LICENSE", "/README.md", "/README.USAGE.md", "/API_REFERENCE.md"]
 
+[features]
+# Exposes the structural invariant checks to the crates under verify/.
+verify = []
+
 [dependencies]
+crossbeam-epoch = "0.9"
 parking_lot = "0.13"
+
+[target.'cfg(loom)'.dependencies]
+loom = "0.7"
+
+[target.'cfg(shuttle)'.dependencies]
+shuttle = "0.9"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(loom)", "cfg(shuttle)", "cfg(crossbeam_loom)", "cfg(xskiplist_tsan)"] }
+
+[workspace]
+members = ["verify/loom", "verify/shuttle", "verify/stress", "verify/miri"]
 
 [dev-dependencies]
 criterion = "0.8"
+crossbeam-skiplist = "0.1"
 skiplist  = "2"
 
 [[bench]]
 name    = "prelim"
+harness = false
+
+[[bench]]
+name    = "concurrent"
 harness = false
 
 [profile.release]

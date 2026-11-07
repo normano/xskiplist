@@ -1,0 +1,7 @@
+[profile.default]
+# A test that is silent for three 60 s periods is a hang: terminate it and fail.
+slow-timeout = { period = "60s", terminate-after = 3 }
+
+[[profile.default.overrides]]
+filter = 'package(xskiplist_stress)'
+slow-timeout = { period = "120s", terminate-after = 5 }

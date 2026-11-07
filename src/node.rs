@@ -275,6 +275,18 @@ impl Levels {
     if height > MAX_HEIGHT { MAX_HEIGHT } else { height }
   }
 
+  /// Height with P(h > n) = 2^-n, capped at `MAX_HEIGHT`.
+  #[inline(always)]
+  pub(crate) fn next_half(&mut self) -> usize {
+    let mut x = self.0;
+    x ^= x << 13;
+    x ^= x >> 7;
+    x ^= x << 17;
+    self.0 = x;
+    let height = 1 + x.wrapping_mul(0x2545_F491_4F6C_DD1D).leading_zeros() as usize;
+    if height > MAX_HEIGHT { MAX_HEIGHT } else { height }
+  }
+
   /// A fresh word of the stream, for seeding a child list.
   pub(crate) fn fork(&mut self) -> u64 {
     self.next();
