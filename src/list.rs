@@ -1,4 +1,3 @@
-use crate::node::{Node, next};
 use crate::raw::{IntoNodes, Nodes, RawList};
 use std::cmp::Ordering;
 use std::fmt;
@@ -42,22 +41,32 @@ impl<T> SkipList<T> {
 
   /// Returns the first element.
   pub fn front(&self) -> Option<&T> {
-    unsafe { self.raw.first().as_ref().map(|n| &n.key) }
+    unsafe { self.raw.first().pair().map(|(k, _)| k) }
   }
 
   /// Returns the first element mutably.
   pub fn front_mut(&mut self) -> Option<&mut T> {
-    unsafe { self.raw.first().as_mut().map(|n| &mut n.key) }
+    let c = self.raw.first();
+    if c.is_null() {
+      None
+    } else {
+      unsafe { Some(c.key_mut()) }
+    }
   }
 
   /// Returns the last element.
   pub fn back(&self) -> Option<&T> {
-    unsafe { self.raw.last().as_ref().map(|n| &n.key) }
+    unsafe { self.raw.last().pair().map(|(k, _)| k) }
   }
 
   /// Returns the last element mutably.
   pub fn back_mut(&mut self) -> Option<&mut T> {
-    unsafe { self.raw.last().as_mut().map(|n| &mut n.key) }
+    let c = self.raw.last();
+    if c.is_null() {
+      None
+    } else {
+      unsafe { Some(c.key_mut()) }
+    }
   }
 
   /// Returns the element at `index`.
@@ -65,7 +74,7 @@ impl<T> SkipList<T> {
     if index >= self.len() {
       return None;
     }
-    unsafe { Some(&(*self.raw.node_at(index + 1)).key) }
+    unsafe { Some(self.raw.node_at(index).key()) }
   }
 
   /// Returns the element at `index` mutably.
@@ -73,7 +82,7 @@ impl<T> SkipList<T> {
     if index >= self.len() {
       return None;
     }
-    unsafe { Some(&mut (*self.raw.node_at(index + 1)).key) }
+    unsafe { Some(self.raw.node_at(index).key_mut()) }
   }
 
   /// Adds an element at the front.
@@ -106,8 +115,8 @@ impl<T> SkipList<T> {
     assert!(index <= len, "insertion index (is {index}) should be <= len (is {len})");
     unsafe {
       let mut path = self.raw.path();
-      self.raw.path_to(index + 1, &mut path);
-      self.raw.insert_at(&path, value, ());
+      self.raw.path_to(index, &mut path);
+      self.raw.insert_at(&mut path, value, ());
     }
   }
 
@@ -121,9 +130,8 @@ impl<T> SkipList<T> {
     assert!(index < len, "removal index (is {index}) should be < len (is {len})");
     unsafe {
       let mut path = self.raw.path();
-      self.raw.path_to(index + 1, &mut path);
-      let node = next(path.node(), 0);
-      self.raw.unlink(node, &path).0
+      self.raw.path_to(index, &mut path);
+      self.raw.remove_at(&mut path).0
     }
   }
 
@@ -138,9 +146,9 @@ impl<T> SkipList<T> {
     assert!(at <= len, "split index (is {at}) should be <= len (is {len})");
     unsafe {
       let mut path = self.raw.path();
-      self.raw.path_to(at + 1, &mut path);
+      self.raw.path_to(at, &mut path);
       SkipList {
-        raw: self.raw.split_off(&path),
+        raw: self.raw.split_off(&mut path),
       }
     }
   }
@@ -306,7 +314,7 @@ impl<T> IntoIterator for SkipList<T> {
 /// Iterator over the elements of a [`SkipList`] in order.
 pub struct Iter<'a, T> {
   nodes: Nodes<T, ()>,
-  marker: PhantomData<&'a Node<T, ()>>,
+  marker: PhantomData<&'a T>,
 }
 
 unsafe impl<T: Sync> Send for Iter<'_, T> {}
@@ -326,7 +334,7 @@ impl<'a, T> Iterator for Iter<'a, T> {
 
   #[inline]
   fn next(&mut self) -> Option<&'a T> {
-    self.nodes.next().map(|n| unsafe { &(*n).key })
+    self.nodes.next().map(|c| unsafe { c.key() })
   }
 
   #[inline]
@@ -338,7 +346,7 @@ impl<'a, T> Iterator for Iter<'a, T> {
 impl<T> DoubleEndedIterator for Iter<'_, T> {
   #[inline]
   fn next_back(&mut self) -> Option<Self::Item> {
-    self.nodes.next_back().map(|n| unsafe { &(*n).key })
+    self.nodes.next_back().map(|c| unsafe { c.key() })
   }
 }
 
@@ -359,7 +367,7 @@ impl<'a, T> Iterator for IterMut<'a, T> {
 
   #[inline]
   fn next(&mut self) -> Option<&'a mut T> {
-    self.nodes.next().map(|n| unsafe { &mut (*n).key })
+    self.nodes.next().map(|c| unsafe { c.key_mut() })
   }
 
   #[inline]
@@ -371,7 +379,7 @@ impl<'a, T> Iterator for IterMut<'a, T> {
 impl<T> DoubleEndedIterator for IterMut<'_, T> {
   #[inline]
   fn next_back(&mut self) -> Option<Self::Item> {
-    self.nodes.next_back().map(|n| unsafe { &mut (*n).key })
+    self.nodes.next_back().map(|c| unsafe { c.key_mut() })
   }
 }
 

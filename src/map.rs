@@ -1,5 +1,4 @@
-use crate::node::{Node, next};
-use crate::raw::{IntoNodes, Nodes, Path, RawList};
+use crate::raw::{Cursor, IntoNodes, Nodes, Path, RawList};
 use std::borrow::Borrow;
 use std::cmp::Ordering;
 use std::fmt;
@@ -8,12 +7,9 @@ use std::iter::FusedIterator;
 use std::marker::PhantomData;
 use std::mem;
 use std::ops::{Bound, Index, RangeBounds};
-use std::ptr;
 
 #[cfg(test)]
 mod tests;
-
-type Ptr<K, V> = *mut Node<K, V>;
 
 /// An ordered map backed by a skiplist.
 ///
@@ -47,12 +43,12 @@ impl<K, V> SkipMap<K, V> {
 
   /// Returns the first key-value pair, the one with the smallest key.
   pub fn first_key_value(&self) -> Option<(&K, &V)> {
-    unsafe { self.raw.first().as_ref().map(|n| (&n.key, &n.value)) }
+    unsafe { self.raw.first().pair() }
   }
 
   /// Returns the last key-value pair, the one with the largest key.
   pub fn last_key_value(&self) -> Option<(&K, &V)> {
-    unsafe { self.raw.last().as_ref().map(|n| (&n.key, &n.value)) }
+    unsafe { self.raw.last().pair() }
   }
 
   /// Removes and returns the first element.
@@ -66,34 +62,12 @@ impl<K, V> SkipMap<K, V> {
   }
 
   #[inline]
-  unsafe fn find<Q>(&self, key: &Q) -> Ptr<K, V>
+  fn find<Q>(&self, key: &Q) -> Cursor<K, V>
   where
     K: Borrow<Q>,
     Q: Ord + ?Sized,
   {
-    unsafe {
-      let mut x = self.raw.head();
-      let mut bound: Ptr<K, V> = ptr::null_mut();
-      let mut level = self.raw.height();
-      while level > 0 {
-        level -= 1;
-        loop {
-          let n = next(x, level);
-          if n == bound {
-            break;
-          }
-          match (*n).key.borrow().cmp(key) {
-            Ordering::Less => x = n,
-            Ordering::Equal => return n,
-            Ordering::Greater => {
-              bound = n;
-              break;
-            }
-          }
-        }
-      }
-      ptr::null_mut()
-    }
+    unsafe { self.raw.find(|k| k.borrow().cmp(key)) }
   }
 
   /// Returns a reference to the value for `key`.
@@ -102,7 +76,7 @@ impl<K, V> SkipMap<K, V> {
     K: Borrow<Q>,
     Q: Ord + ?Sized,
   {
-    unsafe { self.find(key).as_ref().map(|n| &n.value) }
+    unsafe { self.find(key).pair().map(|(_, v)| v) }
   }
 
   /// Returns the stored key and its value for `key`.
@@ -111,7 +85,7 @@ impl<K, V> SkipMap<K, V> {
     K: Borrow<Q>,
     Q: Ord + ?Sized,
   {
-    unsafe { self.find(key).as_ref().map(|n| (&n.key, &n.value)) }
+    unsafe { self.find(key).pair() }
   }
 
   /// Returns a mutable reference to the value for `key`.
@@ -120,7 +94,7 @@ impl<K, V> SkipMap<K, V> {
     K: Borrow<Q>,
     Q: Ord + ?Sized,
   {
-    unsafe { self.find(key).as_mut().map(|n| &mut n.value) }
+    unsafe { self.find(key).pair_mut().map(|(_, v)| v) }
   }
 
   /// Returns `true` if the map contains `key`.
@@ -129,7 +103,7 @@ impl<K, V> SkipMap<K, V> {
     K: Borrow<Q>,
     Q: Ord + ?Sized,
   {
-    unsafe { !self.find(key).is_null() }
+    !self.find(key).is_null()
   }
 
   /// Inserts a key-value pair. If the key was present its value is replaced and the old value
@@ -141,9 +115,9 @@ impl<K, V> SkipMap<K, V> {
     unsafe {
       let mut path = self.raw.path();
       match self.raw.search(|k| k.cmp(&key), &mut path) {
-        Some(n) => Some(mem::replace(&mut (*n).value, value)),
+        Some(c) => Some(mem::replace(c.value_mut(), value)),
         None => {
-          self.raw.insert_at(&path, key, value);
+          self.raw.insert_at(&mut path, key, value);
           None
         }
       }
@@ -160,9 +134,9 @@ impl<K, V> SkipMap<K, V> {
     unsafe {
       let mut path = self.raw.path();
       match self.raw.search(|k| k.cmp(&key), &mut path) {
-        Some(n) => Some(mem::replace(&mut (*n).key, key)),
+        Some(c) => Some(mem::replace(c.key_mut(), key)),
         None => {
-          self.raw.insert_at(&path, key, V::default());
+          self.raw.insert_at(&mut path, key, V::default());
           None
         }
       }
@@ -186,12 +160,8 @@ impl<K, V> SkipMap<K, V> {
   {
     unsafe {
       let mut path = self.raw.path();
-      self.raw.path_where(|k| k.borrow() < key, &mut path);
-      let n = next(path.node(), 0);
-      if n.is_null() || (*n).key.borrow() != key {
-        return None;
-      }
-      Some(self.raw.unlink(n, &path))
+      self.raw.search(|k| k.borrow().cmp(key), &mut path)?;
+      Some(self.raw.remove_at(&mut path))
     }
   }
 
@@ -203,7 +173,7 @@ impl<K, V> SkipMap<K, V> {
     unsafe {
       let mut path = self.raw.path();
       match self.raw.search(|k| k.cmp(&key), &mut path) {
-        Some(n) => Entry::Occupied(OccupiedEntry { map: self, node: n }),
+        Some(cursor) => Entry::Occupied(OccupiedEntry { map: self, cursor }),
         None => Entry::Vacant(VacantEntry { map: self, key, path }),
       }
     }
@@ -228,7 +198,7 @@ impl<K, V> SkipMap<K, V> {
       let mut path = self.raw.path();
       self.raw.path_where(|k| k.borrow() < key, &mut path);
       SkipMap {
-        raw: self.raw.split_off(&path),
+        raw: self.raw.split_off(&mut path),
       }
     }
   }
@@ -247,7 +217,7 @@ impl<K, V> SkipMap<K, V> {
       return;
     }
     unsafe {
-      if (*self.raw.last()).key < (*other.raw.first()).key {
+      if self.raw.last().key() < other.raw.first().key() {
         self.raw.append(&mut other.raw);
         return;
       }
@@ -322,31 +292,25 @@ impl<K, V> SkipMap<K, V> {
     }
     unsafe {
       let (front, fpos) = match range.start_bound() {
-        Bound::Unbounded => (self.raw.first(), 1),
-        Bound::Included(s) => {
-          let (x, p) = self.raw.last_where(|k| k.borrow() < s);
-          (next(x, 0), p + 1)
-        }
-        Bound::Excluded(s) => {
-          let (x, p) = self.raw.last_where(|k| k.borrow() <= s);
-          (next(x, 0), p + 1)
-        }
+        Bound::Unbounded => (self.raw.first(), 0),
+        Bound::Included(s) => self.raw.lower_bound(|k| k.borrow() < s),
+        Bound::Excluded(s) => self.raw.lower_bound(|k| k.borrow() <= s),
       };
       if front.is_null() {
         return Nodes::EMPTY;
       }
-      let (back, bpos) = match range.end_bound() {
-        Bound::Unbounded => (self.raw.last(), self.raw.len()),
-        Bound::Included(e) => self.raw.last_where(|k| k.borrow() <= e),
-        Bound::Excluded(e) => self.raw.last_where(|k| k.borrow() < e),
+      let (end, epos) = match range.end_bound() {
+        Bound::Unbounded => (Cursor::NONE, self.raw.len()),
+        Bound::Included(e) => self.raw.lower_bound(|k| k.borrow() <= e),
+        Bound::Excluded(e) => self.raw.lower_bound(|k| k.borrow() < e),
       };
-      if bpos < fpos {
+      if epos <= fpos {
         return Nodes::EMPTY;
       }
       Nodes {
         front,
-        back,
-        len: bpos - fpos + 1,
+        back: self.raw.before(end),
+        len: epos - fpos,
       }
     }
   }
@@ -437,7 +401,7 @@ pub struct VacantEntry<'a, K, V> {
 /// A view into a key that is in the map.
 pub struct OccupiedEntry<'a, K, V> {
   map: &'a mut SkipMap<K, V>,
-  node: Ptr<K, V>,
+  cursor: Cursor<K, V>,
 }
 
 unsafe impl<K: Send, V: Send> Send for VacantEntry<'_, K, V> {}
@@ -519,10 +483,10 @@ impl<'a, K, V> VacantEntry<'a, K, V> {
   }
 
   pub(crate) fn insert_key_value(self, value: V) -> (&'a K, &'a mut V) {
-    let VacantEntry { map, key, path } = self;
+    let VacantEntry { map, key, mut path } = self;
     unsafe {
-      let n = map.raw.insert_at(&path, key, value);
-      (&(*n).key, &mut (*n).value)
+      let c = map.raw.insert_at(&mut path, key, value);
+      (c.key(), c.value_mut())
     }
   }
 }
@@ -530,22 +494,22 @@ impl<'a, K, V> VacantEntry<'a, K, V> {
 impl<'a, K, V> OccupiedEntry<'a, K, V> {
   /// Returns the stored key.
   pub fn key(&self) -> &K {
-    unsafe { &(*self.node).key }
+    unsafe { self.cursor.key() }
   }
 
   /// Returns the value.
   pub fn get(&self) -> &V {
-    unsafe { &(*self.node).value }
+    unsafe { self.cursor.value() }
   }
 
   /// Returns the value mutably.
   pub fn get_mut(&mut self) -> &mut V {
-    unsafe { &mut (*self.node).value }
+    unsafe { self.cursor.value_mut() }
   }
 
   /// Converts the entry into a mutable reference to the value with the map's lifetime.
   pub fn into_mut(self) -> &'a mut V {
-    unsafe { &mut (*self.node).value }
+    unsafe { self.cursor.value_mut() }
   }
 
   /// Replaces the value and returns the old one.
@@ -563,10 +527,10 @@ impl<K: Ord, V> OccupiedEntry<'_, K, V> {
   /// Removes the entry and returns the stored key and its value.
   pub fn remove_entry(self) -> (K, V) {
     unsafe {
-      let key: *const K = &(*self.node).key;
+      let key: *const K = self.cursor.key();
       let mut path = self.map.raw.path();
-      self.map.raw.path_where(|k| k < &*key, &mut path);
-      self.map.raw.unlink(self.node, &path)
+      self.map.raw.search(|k| k.cmp(&*key), &mut path);
+      self.map.raw.remove_at(&mut path)
     }
   }
 }
@@ -703,7 +667,7 @@ impl<K, V> IntoIterator for SkipMap<K, V> {
 /// Iterator over the entries of a [`SkipMap`] in key order.
 pub struct Iter<'a, K, V> {
   nodes: Nodes<K, V>,
-  marker: PhantomData<&'a Node<K, V>>,
+  marker: PhantomData<(&'a K, &'a V)>,
 }
 
 unsafe impl<K: Sync, V: Sync> Send for Iter<'_, K, V> {}
@@ -723,7 +687,7 @@ impl<'a, K, V> Iterator for Iter<'a, K, V> {
 
   #[inline]
   fn next(&mut self) -> Option<Self::Item> {
-    self.nodes.next().map(|n| unsafe { (&(*n).key, &(*n).value) })
+    self.nodes.next().map(|c| unsafe { (c.key(), c.value()) })
   }
 
   #[inline]
@@ -735,7 +699,7 @@ impl<'a, K, V> Iterator for Iter<'a, K, V> {
 impl<K, V> DoubleEndedIterator for Iter<'_, K, V> {
   #[inline]
   fn next_back(&mut self) -> Option<Self::Item> {
-    self.nodes.next_back().map(|n| unsafe { (&(*n).key, &(*n).value) })
+    self.nodes.next_back().map(|c| unsafe { (c.key(), c.value()) })
   }
 }
 
@@ -756,7 +720,7 @@ impl<'a, K, V> Iterator for IterMut<'a, K, V> {
 
   #[inline]
   fn next(&mut self) -> Option<Self::Item> {
-    self.nodes.next().map(|n| unsafe { (&(*n).key, &mut (*n).value) })
+    self.nodes.next().map(|c| unsafe { (c.key(), c.value_mut()) })
   }
 
   #[inline]
@@ -768,7 +732,7 @@ impl<'a, K, V> Iterator for IterMut<'a, K, V> {
 impl<K, V> DoubleEndedIterator for IterMut<'_, K, V> {
   #[inline]
   fn next_back(&mut self) -> Option<Self::Item> {
-    self.nodes.next_back().map(|n| unsafe { (&(*n).key, &mut (*n).value) })
+    self.nodes.next_back().map(|c| unsafe { (c.key(), c.value_mut()) })
   }
 }
 

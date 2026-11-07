@@ -1,5 +1,4 @@
-use crate::node::{Node, next};
-use crate::raw::{IntoNodes, Nodes, RawList};
+use crate::raw::{Cursor, IntoNodes, Nodes, RawList};
 use std::borrow::Borrow;
 use std::cmp::Ordering;
 use std::fmt;
@@ -42,12 +41,12 @@ impl<T> OrderedSkipList<T> {
 
   /// Returns the smallest element.
   pub fn first(&self) -> Option<&T> {
-    unsafe { self.raw.first().as_ref().map(|n| &n.key) }
+    unsafe { self.raw.first().pair().map(|(k, _)| k) }
   }
 
   /// Returns the largest element.
   pub fn last(&self) -> Option<&T> {
-    unsafe { self.raw.last().as_ref().map(|n| &n.key) }
+    unsafe { self.raw.last().pair().map(|(k, _)| k) }
   }
 
   /// Returns the element at `index`.
@@ -55,7 +54,7 @@ impl<T> OrderedSkipList<T> {
     if index >= self.len() {
       return None;
     }
-    unsafe { Some(&(*self.raw.node_at(index + 1)).key) }
+    unsafe { Some(self.raw.node_at(index).key()) }
   }
 
   /// Inserts `value` after every element equal to it.
@@ -66,7 +65,7 @@ impl<T> OrderedSkipList<T> {
     unsafe {
       let mut path = self.raw.path();
       self.raw.path_where(|k| k <= &value, &mut path);
-      self.raw.insert_at(&path, value, ());
+      self.raw.insert_at(&mut path, value, ());
     }
   }
 
@@ -86,12 +85,11 @@ impl<T> OrderedSkipList<T> {
     Q: Ord + ?Sized,
   {
     unsafe {
-      let (x, _) = self.raw.last_where(|k| k.borrow() < value);
-      let n = next(x, 0);
-      if n.is_null() || (*n).key.borrow() != value {
-        return None;
+      let (c, _) = self.raw.lower_bound(|k| k.borrow() < value);
+      match c.pair() {
+        Some((k, _)) if k.borrow() == value => Some(k),
+        _ => None,
       }
-      Some(&(*n).key)
     }
   }
 
@@ -102,12 +100,11 @@ impl<T> OrderedSkipList<T> {
     Q: Ord + ?Sized,
   {
     unsafe {
-      let (x, pos) = self.raw.last_where(|k| k.borrow() < value);
-      let n = next(x, 0);
-      if n.is_null() || (*n).key.borrow() != value {
-        return None;
+      let (c, index) = self.raw.lower_bound(|k| k.borrow() < value);
+      match c.pair() {
+        Some((k, _)) if k.borrow() == value => Some(index),
+        _ => None,
       }
-      Some(pos)
     }
   }
 
@@ -118,8 +115,8 @@ impl<T> OrderedSkipList<T> {
     Q: Ord + ?Sized,
   {
     unsafe {
-      let (_, lower) = self.raw.last_where(|k| k.borrow() < value);
-      let (_, upper) = self.raw.last_where(|k| k.borrow() <= value);
+      let (_, lower) = self.raw.lower_bound(|k| k.borrow() < value);
+      let (_, upper) = self.raw.lower_bound(|k| k.borrow() <= value);
       upper - lower
     }
   }
@@ -133,11 +130,12 @@ impl<T> OrderedSkipList<T> {
     unsafe {
       let mut path = self.raw.path();
       self.raw.path_where(|k| k.borrow() < value, &mut path);
-      let n = next(path.node(), 0);
-      if n.is_null() || (*n).key.borrow() != value {
+      path.normalize();
+      let c = path.target();
+      if c.is_null() || c.key().borrow() != value {
         return None;
       }
-      Some(self.raw.unlink(n, &path).0)
+      Some(self.raw.remove_at(&mut path).0)
     }
   }
 
@@ -148,13 +146,16 @@ impl<T> OrderedSkipList<T> {
     Q: Ord + ?Sized,
   {
     unsafe {
-      let (n, pos) = self.raw.last_where(|k| k.borrow() <= value);
-      if pos == 0 || (*n).key.borrow() != value {
+      let mut path = self.raw.path();
+      self.raw.path_where(|k| k.borrow() <= value, &mut path);
+      if path.slot == 0 {
         return None;
       }
-      let mut path = self.raw.path();
-      self.raw.path_to(pos, &mut path);
-      Some(self.raw.unlink(n, &path).0)
+      path.slot -= 1;
+      if path.target().key().borrow() != value {
+        return None;
+      }
+      Some(self.raw.remove_at(&mut path).0)
     }
   }
 
@@ -168,9 +169,8 @@ impl<T> OrderedSkipList<T> {
     assert!(index < len, "removal index (is {index}) should be < len (is {len})");
     unsafe {
       let mut path = self.raw.path();
-      self.raw.path_to(index + 1, &mut path);
-      let node = next(path.node(), 0);
-      self.raw.unlink(node, &path).0
+      self.raw.path_to(index, &mut path);
+      self.raw.remove_at(&mut path).0
     }
   }
 
@@ -195,7 +195,7 @@ impl<T> OrderedSkipList<T> {
       let mut path = self.raw.path();
       self.raw.path_where(|k| k.borrow() < value, &mut path);
       OrderedSkipList {
-        raw: self.raw.split_off(&path),
+        raw: self.raw.split_off(&mut path),
       }
     }
   }
@@ -211,9 +211,9 @@ impl<T> OrderedSkipList<T> {
     assert!(at <= len, "split index (is {at}) should be <= len (is {len})");
     unsafe {
       let mut path = self.raw.path();
-      self.raw.path_to(at + 1, &mut path);
+      self.raw.path_to(at, &mut path);
       OrderedSkipList {
-        raw: self.raw.split_off(&path),
+        raw: self.raw.split_off(&mut path),
       }
     }
   }
@@ -232,7 +232,7 @@ impl<T> OrderedSkipList<T> {
       return;
     }
     unsafe {
-      if (*self.raw.last()).key <= (*other.raw.first()).key {
+      if self.raw.last().key() <= other.raw.first().key() {
         self.raw.append(&mut other.raw);
         return;
       }
@@ -280,31 +280,25 @@ impl<T> OrderedSkipList<T> {
     }
     let nodes = unsafe {
       let (front, fpos) = match range.start_bound() {
-        Bound::Unbounded => (self.raw.first(), 1),
-        Bound::Included(s) => {
-          let (x, p) = self.raw.last_where(|k| k.borrow() < s);
-          (next(x, 0), p + 1)
-        }
-        Bound::Excluded(s) => {
-          let (x, p) = self.raw.last_where(|k| k.borrow() <= s);
-          (next(x, 0), p + 1)
-        }
+        Bound::Unbounded => (self.raw.first(), 0),
+        Bound::Included(s) => self.raw.lower_bound(|k| k.borrow() < s),
+        Bound::Excluded(s) => self.raw.lower_bound(|k| k.borrow() <= s),
       };
       if front.is_null() {
         Nodes::EMPTY
       } else {
-        let (back, bpos) = match range.end_bound() {
-          Bound::Unbounded => (self.raw.last(), self.raw.len()),
-          Bound::Included(e) => self.raw.last_where(|k| k.borrow() <= e),
-          Bound::Excluded(e) => self.raw.last_where(|k| k.borrow() < e),
+        let (end, epos) = match range.end_bound() {
+          Bound::Unbounded => (Cursor::NONE, self.raw.len()),
+          Bound::Included(e) => self.raw.lower_bound(|k| k.borrow() <= e),
+          Bound::Excluded(e) => self.raw.lower_bound(|k| k.borrow() < e),
         };
-        if bpos < fpos {
+        if epos <= fpos {
           Nodes::EMPTY
         } else {
           Nodes {
             front,
-            back,
-            len: bpos - fpos + 1,
+            back: self.raw.before(end),
+            len: epos - fpos,
           }
         }
       }
@@ -446,7 +440,7 @@ impl<T> IntoIterator for OrderedSkipList<T> {
 /// Iterator over the elements of an [`OrderedSkipList`] in order.
 pub struct Iter<'a, T> {
   nodes: Nodes<T, ()>,
-  marker: PhantomData<&'a Node<T, ()>>,
+  marker: PhantomData<&'a T>,
 }
 
 unsafe impl<T: Sync> Send for Iter<'_, T> {}
@@ -466,7 +460,7 @@ impl<'a, T> Iterator for Iter<'a, T> {
 
   #[inline]
   fn next(&mut self) -> Option<&'a T> {
-    self.nodes.next().map(|n| unsafe { &(*n).key })
+    self.nodes.next().map(|c| unsafe { c.key() })
   }
 
   #[inline]
@@ -478,7 +472,7 @@ impl<'a, T> Iterator for Iter<'a, T> {
 impl<T> DoubleEndedIterator for Iter<'_, T> {
   #[inline]
   fn next_back(&mut self) -> Option<Self::Item> {
-    self.nodes.next_back().map(|n| unsafe { &(*n).key })
+    self.nodes.next_back().map(|c| unsafe { c.key() })
   }
 }
 
