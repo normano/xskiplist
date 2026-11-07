@@ -6,7 +6,9 @@
 //! `i / 100` for `i` in `0..n`. Keys come from a fixed seeded pool. Each cell runs for `--limit`
 //! seconds and reports steps and ns per step.
 //!
-//! `cargo bench --bench prelim -- [--limit S] [--impls new,original] [--sizes 1000,100000] [--only substr]`
+//! `cargo bench --bench prelim -- [--limit S] [--impls new,original,btreemap] [--sizes 1000,100000] [--only substr]`
+//!
+//! `btreemap` is `std::collections::BTreeMap` and `BTreeSet`; it has no list or ordered-list cells.
 
 use std::hint::black_box;
 use std::time::{Duration, Instant};
@@ -261,6 +263,199 @@ impl<T: Ord + Clone> SetApi<T> for xskiplist::SkipSet<T> {
 }
 
 impl MapApi for xskiplist::SkipMap<u64, u64> {
+  fn new() -> Self {
+    Self::new()
+  }
+  fn insert(&mut self, k: u64, v: u64) -> Option<u64> {
+    self.insert(k, v)
+  }
+  fn remove(&mut self, k: &u64) -> Option<u64> {
+    self.remove(k)
+  }
+  fn get(&self, k: &u64) -> Option<&u64> {
+    self.get(k)
+  }
+  fn get_mut(&mut self, k: &u64) -> Option<&mut u64> {
+    self.get_mut(k)
+  }
+  fn entry_or_insert(&mut self, k: u64, v: u64) -> &mut u64 {
+    self.entry(k).or_insert(v)
+  }
+  fn pop_last(&mut self) -> Option<(u64, u64)> {
+    self.pop_last()
+  }
+  fn fold(&self) -> u64 {
+    self.iter().fold(0, |a, (k, v)| a.wrapping_add(*k ^ *v))
+  }
+  fn split_off(&mut self, k: &u64) -> Self {
+    self.split_off(k)
+  }
+  fn append(&mut self, other: &mut Self) {
+    self.append(other)
+  }
+  fn retain(&mut self, f: impl FnMut(&u64, &mut u64) -> bool) {
+    self.retain(f)
+  }
+  fn collect(it: impl Iterator<Item = (u64, u64)>) -> Self {
+    it.collect()
+  }
+}
+
+// MARK: std
+
+/// Stands in for the list and ordered-list slots of the `btreemap` impl, which std has no
+/// counterpart for. `main` skips those cells for it.
+#[derive(Clone)]
+struct Missing;
+
+impl ListApi for Missing {
+  fn new() -> Self {
+    Missing
+  }
+  fn get(&self, _: usize) -> Option<&u64> {
+    unreachable!()
+  }
+  fn insert(&mut self, _: usize, _: u64) {
+    unreachable!()
+  }
+  fn remove(&mut self, _: usize) -> u64 {
+    unreachable!()
+  }
+  fn push_front(&mut self, _: u64) {
+    unreachable!()
+  }
+  fn push_back(&mut self, _: u64) {
+    unreachable!()
+  }
+  fn pop_front(&mut self) -> Option<u64> {
+    unreachable!()
+  }
+  fn pop_back(&mut self) -> Option<u64> {
+    unreachable!()
+  }
+  fn sum(&self) -> u64 {
+    unreachable!()
+  }
+  fn split_off(&mut self, _: usize) -> Self {
+    unreachable!()
+  }
+  fn append(&mut self, _: &mut Self) {
+    unreachable!()
+  }
+  fn retain(&mut self, _: impl FnMut(&u64) -> bool) {
+    unreachable!()
+  }
+  fn collect(_: impl Iterator<Item = u64>) -> Self {
+    Missing
+  }
+}
+
+impl OslApi for Missing {
+  fn new() -> Self {
+    Missing
+  }
+  fn insert(&mut self, _: u64) {
+    unreachable!()
+  }
+  fn take(&mut self, _: &u64) -> Option<u64> {
+    unreachable!()
+  }
+  fn take_last(&mut self, _: &u64) -> Option<u64> {
+    unreachable!()
+  }
+  fn contains(&self, _: &u64) -> bool {
+    unreachable!()
+  }
+  fn rank(&self, _: &u64) -> Option<usize> {
+    unreachable!()
+  }
+  fn get_by_index(&self, _: usize) -> Option<&u64> {
+    unreachable!()
+  }
+  fn count(&self, _: &u64) -> usize {
+    unreachable!()
+  }
+  fn pop_first(&mut self) -> Option<u64> {
+    unreachable!()
+  }
+  fn sum(&self) -> u64 {
+    unreachable!()
+  }
+  fn range_sum(&self, _: u64, _: u64) -> u64 {
+    unreachable!()
+  }
+  fn split_off(&mut self, _: &u64) -> Self {
+    unreachable!()
+  }
+  fn append(&mut self, _: &mut Self) {
+    unreachable!()
+  }
+  fn retain(&mut self, _: impl FnMut(&u64) -> bool) {
+    unreachable!()
+  }
+  fn collect(_: impl Iterator<Item = u64>) -> Self {
+    Missing
+  }
+}
+
+impl<T: Ord + Clone> SetApi<T> for std::collections::BTreeSet<T> {
+  fn new() -> Self {
+    Self::new()
+  }
+  fn insert(&mut self, v: T) -> bool {
+    self.insert(v)
+  }
+  fn remove(&mut self, v: &T) -> bool {
+    self.remove(v)
+  }
+  fn replace(&mut self, v: T) -> Option<T> {
+    self.replace(v)
+  }
+  fn entry_hit(&mut self, v: T) -> bool {
+    match self.get(&v) {
+      Some(e) => {
+        black_box(e);
+        true
+      }
+      None => false,
+    }
+  }
+  fn contains(&self, v: &T) -> bool {
+    self.contains(v)
+  }
+  fn range_next(&self, lo: T) -> Option<&T> {
+    self.range(lo..).next()
+  }
+  fn pop_first(&mut self) -> Option<T> {
+    self.pop_first()
+  }
+  fn fold(&self, f: impl FnMut(u64, &T) -> u64) -> u64 {
+    self.iter().fold(0, f)
+  }
+  fn into_fold(self, f: impl FnMut(u64, T) -> u64) -> u64 {
+    self.into_iter().fold(0, f)
+  }
+  fn bitor(&self, other: &Self) -> Self {
+    self | other
+  }
+  fn intersection_count(&self, other: &Self) -> usize {
+    self.intersection(other).count()
+  }
+  fn split_off(&mut self, v: &T) -> Self {
+    self.split_off(v)
+  }
+  fn append(&mut self, other: &mut Self) {
+    self.append(other)
+  }
+  fn retain(&mut self, f: impl FnMut(&T) -> bool) {
+    self.retain(f)
+  }
+  fn collect(it: impl Iterator<Item = T>) -> Self {
+    it.collect()
+  }
+}
+
+impl MapApi for std::collections::BTreeMap<u64, u64> {
   fn new() -> Self {
     Self::new()
   }
@@ -868,6 +1063,13 @@ fn main() {
     xskiplist::SkipMap<u64, u64>,
   >();
   let original = cells::<OList, OOsl, OSet<u64>, OSet<String>, OMap>();
+  let btree = cells::<
+    Missing,
+    Missing,
+    std::collections::BTreeSet<u64>,
+    std::collections::BTreeSet<String>,
+    std::collections::BTreeMap<u64, u64>,
+  >();
   println!(
     "{:<9} {:<26} {:>7} {:>12} {:>12}",
     "impl", "workload", "n", "steps", "ns/step"
@@ -881,6 +1083,8 @@ fn main() {
         let cell = match name.as_str() {
           "new" => &new[i],
           "original" => &original[i],
+          "btreemap" if label.starts_with("list/") || label.starts_with("osl/") => continue,
+          "btreemap" => &btree[i],
           other => panic!("unknown impl {other}"),
         };
         let (steps, timed) = (cell.run)(n, limit);

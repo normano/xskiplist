@@ -1,6 +1,6 @@
 # API Reference: xskiplist
 
-Skiplist collections: a sorted map, a sorted set, a sorted list that keeps duplicates and a list indexed by position.
+Skiplist collections: a sorted map, a sorted set, a sorted list that keeps duplicates, a list indexed by position and two concurrent sorted maps.
 
 ## Contents
 
@@ -22,11 +22,18 @@ Skiplist collections: a sorted map, a sorted set, a sorted list that keeps dupli
 * [4. SkipList](#4-skiplist)
   * [SkipList<T>](#skiplistt)
   * [List iterators](#list-iterators)
-* [5. Shared Behaviour](#5-shared-behaviour)
+* [5. ArenaSkipMap](#5-arenaskipmap)
+  * [ArenaSkipMap<K, V>](#arenaskipmapk-v)
+  * [Arena iterators](#arena-iterators)
+* [6. ConcurrentSkipMap](#6-concurrentskipmap)
+  * [ConcurrentSkipMap<K, V>](#concurrentskipmapk-v)
+  * [concurrent::Entry<'a, K, V>](#concurrententrya-k-v)
+  * [Concurrent iterators](#concurrent-iterators)
+* [7. Shared Behaviour](#7-shared-behaviour)
   * [Complexity](#complexity)
   * [Memory](#memory)
   * [Thread safety](#thread-safety)
-* [6. Error Handling](#6-error-handling)
+* [8. Error Handling](#8-error-handling)
 
 ## 1. SkipMap
 
@@ -240,7 +247,70 @@ Trait implementations: `Default`, `Clone` (`T: Clone`), `FromIterator<T>` (input
 * `IterMut<'a, T>`: `Item = &'a mut T`. `DoubleEndedIterator`, `ExactSizeIterator`, `FusedIterator`.
 * `IntoIter<T>`: `Item = T`. `DoubleEndedIterator`, `ExactSizeIterator`, `FusedIterator`.
 
-## 5. Shared Behaviour
+## 5. ArenaSkipMap
+
+A concurrent sorted map that only grows. Every method takes `&self`. Nothing is removed before the map drops, so every reference it returns lives as long as the borrow of the map.
+
+### ArenaSkipMap<K, V>
+
+* `fn new() -> Self`
+* `fn len(&self) -> usize`: the number of inserts that won. Exact once every inserting thread has finished; while inserts run on other threads it may lag behind them.
+* `fn is_empty(&self) -> bool`
+* `fn get<Q>(&self, key: &Q) -> Option<&V>` where `K: Borrow<Q>`, `Q: Ord + ?Sized`
+* `fn get_key_value<Q>(&self, key: &Q) -> Option<(&K, &V)>` where `K: Borrow<Q>`, `Q: Ord + ?Sized`
+* `fn contains_key<Q>(&self, key: &Q) -> bool` where `K: Borrow<Q>`, `Q: Ord + ?Sized`
+* `fn insert(&self, key: K, value: V) -> (&K, &V, bool)` where `K: Ord`: the stored key and value and whether this call inserted them. A present key keeps its value and the arguments are dropped.
+* `fn get_or_insert(&self, key: K, value: V) -> &V` where `K: Ord`
+* `fn get_or_insert_with<F>(&self, key: K, f: F) -> &V` where `K: Ord`, `F: FnOnce() -> V`: `f` runs only when the key is absent at the time of the call. Two threads calling it for the same absent key may both run `f`; one result is dropped.
+* `fn first(&self) -> Option<(&K, &V)>`
+* `fn last(&self) -> Option<(&K, &V)>`: the largest entry at the time of the call.
+* `fn iter(&self) -> arena::Iter<'_, K, V>`
+* `fn range<Q, R>(&self, range: R) -> arena::Iter<'_, K, V>` where `K: Borrow<Q>`, `Q: Ord + ?Sized`, `R: RangeBounds<Q>`
+
+Trait implementations: `Default`, `FromIterator<(K, V)>` (`K: Ord`; a repeated key keeps its first value), `Debug`, `IntoIterator` for `&ArenaSkipMap`. `Send` and `Sync` when `K: Send + Sync, V: Send + Sync`.
+
+### Arena iterators
+
+* `arena::Iter<'a, K, V>`: `Item = (&'a K, &'a V)`. `Clone`. Forward only. An entry inserted during the iteration is visited if its node was linked before the iterator reached its position.
+
+## 6. ConcurrentSkipMap
+
+A concurrent sorted map with removal. Every method takes `&self`. Lookups and iteration take no locks. An entry is handed out behind an epoch guard and stays allocated while the guard lives.
+
+### ConcurrentSkipMap<K, V>
+
+* `fn new() -> Self`
+* `fn len(&self) -> usize`: approximate while other threads are writing, exact when they are not.
+* `fn is_empty(&self) -> bool`
+* `fn get<Q>(&self, key: &Q) -> Option<concurrent::Entry<'_, K, V>>` where `K: Borrow<Q>`, `Q: Ord + ?Sized`
+* `fn contains_key<Q>(&self, key: &Q) -> bool` where `K: Borrow<Q>`, `Q: Ord + ?Sized`
+* `fn insert(&self, key: K, value: V) -> concurrent::Entry<'_, K, V>` where `K: Ord + Clone`: a present key gets a new entry with the new value; entries already handed out keep the old one.
+* `fn get_or_insert(&self, key: K, value: V) -> concurrent::Entry<'_, K, V>` where `K: Ord + Clone`
+* `fn remove<Q>(&self, key: &Q) -> Option<concurrent::Entry<'_, K, V>>` where `K: Borrow<Q> + Ord`, `Q: Ord + ?Sized`
+* `fn front(&self) -> Option<concurrent::Entry<'_, K, V>>`
+* `fn back(&self) -> Option<concurrent::Entry<'_, K, V>>`
+* `fn iter(&self) -> concurrent::Iter<'_, K, V>`
+* `fn range<Q, R>(&self, range: R) -> concurrent::Range<'_, Q, R, K, V>` where `K: Borrow<Q>`, `Q: Ord + ?Sized`, `R: RangeBounds<Q>`
+
+`K: Clone` on the inserting methods: a split copies one key into the new node as its lower bound.
+
+Trait implementations: `Default`, `FromIterator<(K, V)>` (`K: Ord + Clone`; a repeated key keeps its last value), `Debug` (`K: Debug + Ord`, `V: Debug`). `Send` and `Sync` when `K: Send + Sync, V: Send + Sync`.
+
+### concurrent::Entry<'a, K, V>
+
+One entry, kept allocated while the `Entry` lives, whether or not it is still in the map.
+
+* `fn key(&self) -> &K`
+* `fn value(&self) -> &V`
+
+`Debug` when `K` and `V` are. `Send` and `Sync` when `K: Send + Sync, V: Send + Sync`.
+
+### Concurrent iterators
+
+* `concurrent::Iter<'a, K, V>`: `Item = concurrent::Entry<'a, K, V>`, requires `K: Ord`. Forward only. Each entry is yielded at most once. An entry inserted or removed during the iteration may or may not be visited.
+* `concurrent::Range<'a, Q, R, K, V>`: `Item = concurrent::Entry<'a, K, V>`, requires `K: Borrow<Q> + Ord`, `Q: Ord + ?Sized`, `R: RangeBounds<Q>`. Same visiting rules as `Iter`; every yielded key lies within the bounds.
+
+## 7. Shared Behaviour
 
 ### Complexity
 
@@ -256,17 +326,21 @@ Trait implementations: `Default`, `Clone` (`T: Clone`), `FromIterator<T>` (input
 | iteration, `retain`, `clear`, drop, `clone`, `FromIterator` from sorted input | O(n) |
 | `FromIterator` from unsorted input (map, set, ordered list) | O(n log n) |
 
-Tower heights are drawn with probability 1/4 per extra level and capped at 24 levels. The expected costs count nodes; the binary search inside a node adds O(log c) comparisons, where c is the node capacity below.
+Tower heights are drawn with probability 1/4 per extra level and capped at 24 levels (1/2 per level for `ArenaSkipMap`). The expected costs count nodes; the binary search inside a node adds O(log c) comparisons, where c is the node capacity below. `ArenaSkipMap` and `ConcurrentSkipMap` have the same expected costs for lookup, insert, remove, `range` construction and iteration. Their `len` is O(1).
 
 ### Memory
 
 A node holds between 1 and c entries, where c is 512 divided by the size in bytes of one key plus one value, clamped to between 4 and 32. Zero-sized entries get 32. A node is allocated for c entries, a back pointer, its length, its height and two words per tower level. A full node splits in half on insert. A node is freed when its last entry is removed; nodes are not merged. Nodes are allocated from slabs owned by the structure, one slab per tower height, growing by doubling from 8 slots up to 1024 per chunk. Freed nodes are reused by the same structure. Structures related by `split_off` or `append` share one pool of chunks that is released when the last of them is dropped or cleared; `clear` releases the chunks only when no other structure shares them.
 
+`ArenaSkipMap` holds one entry per node: the key, the value, the height and one word per tower level, bump-allocated from 256 KiB chunks spread over 16 stripes. Nothing is freed before the map drops. A losing insert of a present key still consumes its node's bytes.
+
+`ConcurrentSkipMap` allocates every entry on its own with the global allocator. A node holds up to 32 entry pointers, a copy of its first key, a lock, a sequence counter and one word per tower level. A full node splits in half on insert. A node is freed when its last entry is removed. Removed entries and emptied nodes are freed through `crossbeam-epoch` once no guard that could reach them is alive, so memory for a removed entry is returned some time after the removal.
+
 ### Thread safety
 
-Every structure is `Send` when its element types are `Send` and `Sync` when they are `Sync`. Borrowing iterators are `Send` and `Sync` when the element types are `Sync`. No structure is safe to mutate from two threads at once without external synchronisation.
+`SkipMap`, `SkipSet`, `OrderedSkipList` and `SkipList` are `Send` when their element types are `Send` and `Sync` when they are `Sync`. Their borrowing iterators are `Send` and `Sync` when the element types are `Sync`. None of the four is safe to mutate from two threads at once without external synchronisation. `ArenaSkipMap` and `ConcurrentSkipMap` take `&self` for every operation and are safe to use from any number of threads at once; they are `Send` and `Sync` when `K: Send + Sync, V: Send + Sync`.
 
-## 6. Error Handling
+## 8. Error Handling
 
 No method returns `Result`. Conditions that cannot be satisfied are panics. Each is a caller error:
 
@@ -276,6 +350,7 @@ No method returns `Result`. Conditions that cannot be satisfied are panics. Each
 * `Index<&Q>` on `SkipMap` with a key that is not present.
 * `range` and `range_mut` on any structure with a start bound greater than the end bound.
 * `range` and `range_mut` with both bounds `Excluded` and equal.
+* `range` on `ConcurrentSkipMap` and `ArenaSkipMap` with a start bound greater than the end bound yields nothing instead of panicking.
 * Allocation failure, through `std::alloc::handle_alloc_error`.
 
-Lookups return `Option`: `get`, `get_mut`, `get_key_value`, `get_by_index`, `first`, `last`, `pop_*`, `remove` and `take` on the map, set and ordered list, `rank`.
+Lookups return `Option`: `get`, `get_mut`, `get_key_value`, `get_by_index`, `first`, `last`, `front`, `back`, `pop_*`, `remove` and `take` on the map, set and ordered list, `rank`.

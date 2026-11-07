@@ -1,6 +1,6 @@
 # Usage Guide: xskiplist
 
-This guide shows how to use the four collections in `xskiplist`: `SkipMap`, `SkipSet`, `OrderedSkipList` and `SkipList`.
+This guide shows how to use the six collections in `xskiplist`: `SkipMap`, `SkipSet`, `OrderedSkipList` and `SkipList` for one thread, `ConcurrentSkipMap` and `ArenaSkipMap` for many.
 
 ## Table of Contents
 
@@ -9,6 +9,7 @@ This guide shows how to use the four collections in `xskiplist`: `SkipMap`, `Ski
   * [A sorted map](#a-sorted-map)
   * [A sorted set](#a-sorted-set)
   * [An indexable list](#an-indexable-list)
+  * [A map shared between threads](#a-map-shared-between-threads)
 * [Choosing a Structure](#choosing-a-structure)
 * [Using the Sorted Map](#using-the-sorted-map)
   * [Inserting, reading and removing](#inserting-reading-and-removing)
@@ -27,6 +28,11 @@ This guide shows how to use the four collections in `xskiplist`: `SkipMap`, `Ski
 * [Filtering in Place](#filtering-in-place)
 * [Splitting and Joining](#splitting-and-joining)
 * [Building from Iterators](#building-from-iterators)
+* [Sharing a Map Between Threads](#sharing-a-map-between-threads)
+  * [Filling an insert-only map](#filling-an-insert-only-map)
+  * [Inserting and removing from many threads](#inserting-and-removing-from-many-threads)
+  * [Holding an entry](#holding-an-entry)
+  * [Scanning while others write](#scanning-while-others-write)
 * [What to Expect from Performance](#what-to-expect-from-performance)
 * [Error Handling](#error-handling)
 
@@ -45,6 +51,9 @@ This guide shows how to use the four collections in `xskiplist`: `SkipMap`, `Ski
 * **Append**: `append` moves every element of one structure to the end of another in O(log n) when the two are already in order. Otherwise it merges them.
 * **Lineage**: the structures that came out of one another through splits and appends. They share the memory their nodes live in, which is released when the last of them drops.
 * **Stable duplicates**: `OrderedSkipList` keeps equal elements in the order they were inserted. `take` removes the earliest, `take_last` the latest.
+* **Anchor**: the key a node of `ConcurrentSkipMap` starts at, copied into the node when it is created and never changed, so a lookup can descend past nodes without locking them.
+* **Guarded entry**: what `ConcurrentSkipMap` returns from `get`, `insert` and `remove`. It keeps the entry allocated while it lives, even after another thread removes the key.
+* **Arena**: the memory `ArenaSkipMap` carves nodes from. Nothing in it is freed before the map drops, which is why that map hands out plain references and cannot remove.
 
 ## Quick Start
 
@@ -107,6 +116,31 @@ fn main() {
 }
 ```
 
+### A map shared between threads
+
+```rust
+use std::thread;
+use xskiplist::ConcurrentSkipMap;
+
+fn main() {
+  let map: ConcurrentSkipMap<u64, u64> = ConcurrentSkipMap::new();
+  thread::scope(|s| {
+    for t in 0..4u64 {
+      let map = &map;
+      s.spawn(move || {
+        for i in 0..1000u64 {
+          map.insert(i * 4 + t, t);
+        }
+      });
+    }
+  });
+  assert_eq!(map.len(), 4000);
+  assert_eq!(map.get(&7).map(|e| *e.value()), Some(3));
+  assert!(map.remove(&7).is_some());
+  assert_eq!(map.range(5..10).count(), 4);
+}
+```
+
 ## Choosing a Structure
 
 | You need | Use |
@@ -115,6 +149,8 @@ fn main() {
 | Values once each, in order, with set algebra | `SkipSet<T>` |
 | Values in order, equal values kept, rank and count queries | `OrderedSkipList<T>` |
 | Values in the order you put them, addressed by index | `SkipList<T>` |
+| A sorted map read and written by many threads, with removal | `ConcurrentSkipMap<K, V>` |
+| A sorted map many threads fill and read, never removing, with plain references | `ArenaSkipMap<K, V>` |
 
 `SkipMap` and `SkipSet` follow the API of `BTreeMap` and `BTreeSet`. `SkipList` follows `VecDeque` where the operations match. `OrderedSkipList` has no standard counterpart.
 
@@ -417,6 +453,105 @@ grown.extend([(3, "d")]);
 assert_eq!(grown.len(), 3);
 ```
 
+## Sharing a Map Between Threads
+
+Both concurrent maps take `&self` for every operation, so a `&ConcurrentSkipMap` or `&ArenaSkipMap` can be handed to any number of threads, through `thread::scope` or an `Arc`.
+
+### Filling an insert-only map
+
+`ArenaSkipMap` never removes, so `get` returns a plain `&V` that lives as long as the borrow of the map. `insert` reports whether this call won the key; a present key keeps its value.
+
+```rust
+use std::thread;
+use xskiplist::ArenaSkipMap;
+
+let words = ["ant", "bee", "cat", "dog"];
+let index: ArenaSkipMap<&str, usize> = ArenaSkipMap::new();
+thread::scope(|s| {
+  for (i, word) in words.iter().enumerate() {
+    let index = &index;
+    s.spawn(move || {
+      index.insert(word, i);
+    });
+  }
+});
+let (_, _, inserted) = index.insert("bee", 99);
+assert!(!inserted);
+assert_eq!(index.get("bee"), Some(&1));
+assert_eq!(index.get_or_insert_with("eel", || 4), &4);
+let keys: Vec<&str> = index.iter().map(|(k, _)| *k).collect();
+assert_eq!(keys, ["ant", "bee", "cat", "dog", "eel"]);
+```
+
+### Inserting and removing from many threads
+
+`ConcurrentSkipMap::insert` replaces the value of a present key and returns the entry. `remove` returns the removed entry. `K: Clone` is required on the inserting methods, since a node split copies one key.
+
+```rust
+use std::thread;
+use xskiplist::ConcurrentSkipMap;
+
+let map: ConcurrentSkipMap<u64, &str> = ConcurrentSkipMap::new();
+thread::scope(|s| {
+  let writer = &map;
+  s.spawn(move || {
+    for k in 0..100u64 {
+      writer.insert(k, "even");
+    }
+  });
+  let remover = &map;
+  s.spawn(move || {
+    for k in (1..100u64).step_by(2) {
+      remover.remove(&k);
+    }
+  });
+});
+assert_eq!(*map.insert(2, "two").value(), "two");
+assert!(map.contains_key(&2));
+assert_eq!(map.remove(&2).map(|e| *e.value()), Some("two"));
+assert!(map.remove(&2).is_none());
+```
+
+### Holding an entry
+
+An `Entry` from `ConcurrentSkipMap` keeps its key and value allocated for as long as it lives, whatever other threads do to the map. Hold it for as long as the value is needed and no longer: while it lives, the memory of entries removed since cannot be reclaimed.
+
+```rust
+use xskiplist::ConcurrentSkipMap;
+
+let map = ConcurrentSkipMap::new();
+map.insert(1, String::from("one"));
+let held = map.get(&1).unwrap();
+map.remove(&1);
+map.insert(1, String::from("uno"));
+assert_eq!(held.value(), "one");
+assert_eq!(map.get(&1).unwrap().value(), "uno");
+```
+
+### Scanning while others write
+
+`iter` and `range` on both maps walk the structure as it is while they run. An entry inserted or removed during the scan may or may not be visited; no entry is visited twice and the keys come out in order.
+
+```rust
+use std::thread;
+use xskiplist::ConcurrentSkipMap;
+
+let map: ConcurrentSkipMap<u64, u64> = (0..1000u64).map(|k| (k, k)).collect();
+thread::scope(|s| {
+  let writer = &map;
+  s.spawn(move || {
+    for k in 1000..2000u64 {
+      writer.insert(k, k);
+      writer.remove(&(k - 1000));
+    }
+  });
+  let keys: Vec<u64> = map.range(500..1500).map(|e| *e.key()).collect();
+  assert!(keys.windows(2).all(|w| w[0] < w[1]));
+  assert!(keys.iter().all(|k| (500..1500).contains(k)));
+});
+assert_eq!(map.len(), 1000);
+```
+
 ## What to Expect from Performance
 
 * Lookup, insert, remove, index access, rank, split and append are O(log n) on average. Iteration is O(n). Towers are drawn with probability 1/4 per level, capped at 24. A node holds up to 32 elements, so a structure of a million small elements has around forty thousand nodes and a height around eight.
@@ -425,6 +560,8 @@ assert_eq!(grown.len(), 3);
 * A node is allocated for its full capacity, plus three words of header and two words per level of its tower. Collecting from an iterator fills every node, so memory is close to the size of the elements themselves. Random inserts split full nodes in half and leave them on average about three quarters full.
 * A node is freed when its last element is removed. Nodes are never merged, so a structure that has lost most of its elements to scattered removals keeps part-filled nodes until it is rebuilt with `collect` or `clone`.
 * `SkipList::push_back`, `pop_back` and `insert` near the end descend from the head like any other position.
+* `ConcurrentSkipMap` reads take no locks and pin an epoch; writes lock one node. A split or a node removal locks its predecessors as well. Against `crossbeam-skiplist` on 14 cores it reads 4% to 15% faster, writes 1.9x to 3.2x faster and scans ranges 1.6x to 4.6x faster. `ArenaSkipMap` reads about as fast and scans ranges 3x to 16x faster. The measurements and how to repeat them are in the repository under `docs/CONCURRENT_BENCHMARKS.md`.
+* A `ConcurrentSkipMap` entry costs one allocation. Removed entries are returned to the allocator by `crossbeam-epoch` once no guard can reach them, so memory follows the removals with a delay.
 
 ## Error Handling
 
