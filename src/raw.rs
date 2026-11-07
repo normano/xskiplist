@@ -79,6 +79,10 @@ impl<K, V> Cursor<K, V> {
 /// walk's test (the head if none) and the index of that node's first entry, plus the slot inside
 /// the level-0 node where the target entry is or would go. Levels at or above `height` read as the
 /// head at index 0.
+///
+/// A path points at a gap between entries. The level-0 node holds the entry before the gap, so
+/// `slot` is at least 1 unless the node is the head. When the gap is at the end of the node
+/// (`slot == len`) every level holds a node strictly before the node after the gap.
 pub(crate) struct Path<K, V> {
   head: Ptr<K, V>,
   height: usize,
@@ -151,39 +155,22 @@ impl<K, V> Path<K, V> {
     self.start() + self.slot
   }
 
-  /// Moves the path onto the next node when the slot is past the end of the level-0 node, so that
-  /// the target entry, if there is one, is at `(node(), slot)`.
-  #[inline(always)]
-  pub(crate) unsafe fn normalize(&mut self) {
-    unsafe {
-      let x = self.node();
-      let own = if x == self.head { 0 } else { len(x) };
-      if x != self.head && self.slot < own {
-        return;
-      }
-      let n = next(x, 0);
-      if n.is_null() {
-        return;
-      }
-      let start = self.start() + own;
-      for level in 0..height(n) {
-        self.set(level, n, start);
-      }
-      self.slot = 0;
-    }
-  }
-
-  /// The target entry after [`normalize`](Self::normalize), or none when the path points past the
-  /// end.
+  /// The entry after the gap: the level-0 node's entry at `slot` when the gap is inside it,
+  /// otherwise the first entry of the next node. None when the gap is at the end of the list.
   #[inline(always)]
   pub(crate) unsafe fn target(&self) -> Cursor<K, V> {
-    let x = self.node();
-    if x == self.head || self.slot >= unsafe { len(x) } {
-      Cursor::NONE
-    } else {
-      Cursor {
-        node: x,
-        slot: self.slot,
+    unsafe {
+      let x = self.node();
+      if x != self.head && self.slot < len(x) {
+        Cursor {
+          node: x,
+          slot: self.slot,
+        }
+      } else {
+        Cursor {
+          node: next(x, 0),
+          slot: 0,
+        }
       }
     }
   }
@@ -252,7 +239,7 @@ impl<K, V> RawList<K, V> {
     }
   }
 
-  /// The entry before `c`, or the last entry when `c` is none.
+  /// The entry before `c`. The last entry when `c` is none.
   #[inline(always)]
   pub(crate) unsafe fn before(&self, c: Cursor<K, V>) -> Cursor<K, V> {
     if c.is_null() {
@@ -358,8 +345,8 @@ impl<K, V> RawList<K, V> {
     }
   }
 
-  /// Fills `path` for the key that `cmp` compares equal to. Returns the entry when it is present;
-  /// otherwise the path points where it would be inserted.
+  /// Fills `path` for the gap before the first key that `cmp` does not compare less than. Returns
+  /// the entry after the gap when it compares equal.
   #[inline(always)]
   pub(crate) unsafe fn search(
     &self,
@@ -367,25 +354,17 @@ impl<K, V> RawList<K, V> {
     path: &mut Path<K, V>,
   ) -> Option<Cursor<K, V>> {
     unsafe {
-      let x = self.walk(|k| cmp(k) != Ordering::Greater, path);
-      if x == self.head() {
-        path.slot = 0;
-        return None;
-      }
-      match key_slice(x).binary_search_by(&mut cmp) {
-        Ok(slot) => {
-          path.slot = slot;
-          Some(Cursor { node: x, slot })
-        }
-        Err(slot) => {
-          path.slot = slot;
-          None
-        }
+      self.path_where(|k| cmp(k) == Ordering::Less, path);
+      let c = path.target();
+      if !c.is_null() && cmp(c.key()) == Ordering::Equal {
+        Some(c)
+      } else {
+        None
       }
     }
   }
 
-  /// The entry that `cmp` compares equal to, or none.
+  /// The entry that `cmp` compares equal to, if any.
   #[inline(always)]
   pub(crate) unsafe fn find(&self, mut cmp: impl FnMut(&K) -> Ordering) -> Cursor<K, V> {
     unsafe {
@@ -425,8 +404,7 @@ impl<K, V> RawList<K, V> {
     }
   }
 
-  /// Fills `path` for the entry at `index`, which must be at most `len`. At `len` the path points
-  /// past the last entry of the last node.
+  /// Fills `path` for the gap before the entry at `index`, which must be at most `len`.
   #[inline(always)]
   pub(crate) unsafe fn path_to(&self, index: usize, path: &mut Path<K, V>) {
     unsafe {
@@ -437,7 +415,7 @@ impl<K, V> RawList<K, V> {
         level -= 1;
         loop {
           let l = *link(x, level);
-          if l.next.is_null() || start + l.width > index {
+          if l.next.is_null() || start + l.width >= index {
             break;
           }
           start += l.width;
@@ -554,16 +532,36 @@ impl<K, V> RawList<K, V> {
     }
   }
 
-  /// Inserts an entry at the path's target and returns it.
+  /// Adds `delta` to the width of every link that spans an entry of `x`: its own links and, above
+  /// its height, the links of the path's nodes. The path must hold `x` or nodes before it on every
+  /// level.
+  #[inline(always)]
+  unsafe fn adjust_widths(&self, x: Ptr<K, V>, path: &Path<K, V>, delta: isize) {
+    unsafe {
+      let xh = height(x);
+      for level in 0..self.height {
+        let pred = if level < xh { x } else { path.pred(level).0 };
+        let pl = link(pred, level);
+        if !(*pl).next.is_null() {
+          (*pl).width = (*pl).width.wrapping_add_signed(delta);
+        }
+      }
+    }
+  }
+
+  /// Inserts an entry in the path's gap and returns it.
   #[inline(always)]
   pub(crate) unsafe fn insert_at(&mut self, path: &mut Path<K, V>, key: K, value: V) -> Cursor<K, V> {
     unsafe {
       let head = self.head();
-      let mut x = path.node();
+      let full = cap::<K, V>();
+      let half = full / 2;
+      let x0 = path.node();
       let mut slot = path.slot;
-      if x == head {
-        let first = next(head, 0);
-        if first.is_null() {
+      let mut x;
+      if x0 == head {
+        x = next(head, 0);
+        if x.is_null() {
           let h = self.levels.next();
           let node = alloc_node(head, h, ptr::null_mut());
           write_entry(node, 0, key, value);
@@ -577,21 +575,29 @@ impl<K, V> RawList<K, V> {
           self.len = 1;
           return Cursor { node, slot: 0 };
         }
-        x = first;
         slot = 0;
-        for level in 0..height(x) {
-          path.set(level, x, 0);
+        if len(x) == full {
+          self.split_node(x, half, path);
         }
-      }
-      if len(x) == cap::<K, V>() {
-        let half = cap::<K, V>() / 2;
-        let n = self.split_node(x, half, path);
-        if slot > half {
-          let start_n = path.start() + half;
-          x = n;
-          slot -= half;
-          for level in 0..height(n) {
-            path.set(level, n, start_n);
+      } else if slot == len(x0) {
+        x = x0;
+        if len(x0) == full {
+          let after = next(x0, 0);
+          if !after.is_null() && len(after) < full {
+            x = after;
+            slot = 0;
+          } else {
+            x = self.split_node(x0, half, path);
+            slot = len(x);
+          }
+        }
+      } else {
+        x = x0;
+        if len(x0) == full {
+          let n = self.split_node(x0, half, path);
+          if slot > half {
+            x = n;
+            slot -= half;
           }
         }
       }
@@ -599,30 +605,32 @@ impl<K, V> RawList<K, V> {
       shift_entries(x, slot, slot + 1, xlen - slot);
       write_entry(x, slot, key, value);
       set_len(x, xlen + 1);
-      for level in 0..self.height {
-        let pl = link(path.pred(level).0, level);
-        if !(*pl).next.is_null() {
-          (*pl).width += 1;
-        }
-      }
+      self.adjust_widths(x, path, 1);
       self.len += 1;
       Cursor { node: x, slot }
     }
   }
 
-  /// Removes the path's target entry, which must exist, and returns it.
+  /// Removes the entry after the path's gap, which must exist, and returns it.
   #[inline(always)]
   pub(crate) unsafe fn remove_at(&mut self, path: &mut Path<K, V>) -> (K, V) {
     unsafe {
-      path.normalize();
       let head = self.head();
-      let x = path.node();
-      let slot = path.slot;
+      let x0 = path.node();
+      let at_gap = x0 == head || path.slot == len(x0);
+      let (x, slot) = if at_gap { (next(x0, 0), 0) } else { (x0, path.slot) };
+      debug_assert!(!x.is_null());
       let xlen = len(x);
-      debug_assert!(x != head && slot < xlen);
+      debug_assert!(slot < xlen);
       if xlen == 1 {
         let mut preds = [(head, 0usize); MAX_HEIGHT];
-        self.preds_of(x, path.start(), &mut preds);
+        if at_gap {
+          for (level, pred) in preds.iter_mut().enumerate().take(self.height) {
+            *pred = path.pred(level);
+          }
+        } else {
+          self.preds_of(x, path.start(), &mut preds);
+        }
         let pair = read_entry(x, 0);
         set_len(x, 0);
         self.unlink_empty(x, &preds, 1);
@@ -631,12 +639,7 @@ impl<K, V> RawList<K, V> {
       let pair = read_entry(x, slot);
       shift_entries(x, slot + 1, slot, xlen - slot - 1);
       set_len(x, xlen - 1);
-      for level in 0..self.height {
-        let pl = link(path.pred(level).0, level);
-        if !(*pl).next.is_null() {
-          (*pl).width -= 1;
-        }
-      }
+      self.adjust_widths(x, path, -1);
       self.len -= 1;
       pair
     }
@@ -725,11 +728,9 @@ impl<K, V> RawList<K, V> {
     }
   }
 
-  /// Moves every entry from the path's target on into a new list that shares this list's chunk
-  /// family.
+  /// Moves every entry after the path's gap into a new list that shares this list's chunk family.
   pub(crate) unsafe fn split_off(&mut self, path: &mut Path<K, V>) -> Self {
     unsafe {
-      path.normalize();
       let family = slab_of(self.head()).family().clone();
       let mut rest = RawList::with(family, Levels::seeded(self.levels.fork()));
       let kept = path.index();
@@ -740,8 +741,10 @@ impl<K, V> RawList<K, V> {
       let x = path.node();
       let slot = path.slot;
       let mut preds = [(head, 0usize); MAX_HEIGHT];
-      if slot == 0 {
-        self.preds_of(x, path.start(), &mut preds);
+      if x == head || slot == len(x) {
+        for (level, pred) in preds.iter_mut().enumerate().take(self.height) {
+          *pred = path.pred(level);
+        }
       } else {
         let xh = height(x);
         let start_x = path.start();

@@ -130,7 +130,6 @@ impl<T> OrderedSkipList<T> {
     unsafe {
       let mut path = self.raw.path();
       self.raw.path_where(|k| k.borrow() < value, &mut path);
-      path.normalize();
       let c = path.target();
       if c.is_null() || c.key().borrow() != value {
         return None;
