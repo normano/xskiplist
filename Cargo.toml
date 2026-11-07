@@ -2,7 +2,7 @@
 name        = "xskiplist"
 version     = "0.2.0"
 authors     = ["Norm O <normo.pub@gmail.com>"]
-description = "Fast skiplist collections: a sorted map, a sorted set, a sorted list with duplicates and an indexable list."
+description = "High Performance Skip List collections: a sorted map, a sorted set, a sorted list with duplicates and an indexable list."
 keywords    = ["collection", "skiplist", "sorted", "map", "list"]
 categories  = ["data-structures"]
 repository  = "https://github.com/normano/xskiplist"
