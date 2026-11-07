@@ -1,3 +1,5 @@
+#![doc = include_str!("../README.USAGE.md")]
+
 mod node;
 mod raw;
 mod slab;

@@ -4,7 +4,7 @@
 [![Docs.rs](https://docs.rs/xskiplist/badge.svg)](https://docs.rs/xskiplist)
 [![License: MPL-2.0](https://img.shields.io/badge/License-MPL%202.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
 
-Skiplist collections for Rust. `SkipMap` is a sorted map and `SkipSet` is a sorted set, with APIs that follow `BTreeMap` and `BTreeSet`. `OrderedSkipList` is a sorted list that keeps equal elements and answers rank and index queries. `SkipList` is a list with O(log n) access, insertion and removal at any index. Every structure splits and joins in O(log n). Its only dependency is `parking_lot`. The crate is experimental and its API may change between 0.x releases.
+Skiplist collections for Rust. `SkipMap` is a sorted map and `SkipSet` is a sorted set, with APIs that follow `BTreeMap` and `BTreeSet`. `OrderedSkipList` is a sorted list that keeps equal elements and answers rank and index queries. `SkipList` is a list with O(log n) access, insertion and removal at any index. Every structure splits and joins in O(log n). Its only dependency is `parking_lot`. The crate is experimental and its API may change between 0.x releases. The task guide is [README.USAGE.md](README.USAGE.md) and the call surface is [API_REFERENCE.md](API_REFERENCE.md).
 
 ## Install
 
