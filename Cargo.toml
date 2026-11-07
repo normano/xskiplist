@@ -9,21 +9,24 @@ repository  = "https://github.com/normano/xskiplist"
 readme      = "README.md"
 license     = "MPL-2.0"
 edition     = "2024"
-include     = ["/src/**", "/Cargo.toml", "/LICENSE", "/README.md", "/README.USAGE.md", "/API_REFERENCE.md"]
+include     = ["/src/**/*.rs", "/Cargo.toml", "/LICENSE", "/README.md", "/README.USAGE.md", "/API_REFERENCE.md"]
 
 [features]
 # Exposes the structural invariant checks to the crates under verify/.
 verify = []
+# Model-checker builds, used with --cfg loom or --cfg shuttle by the verify/ scripts.
+loom = ["dep:loom"]
+shuttle = ["dep:shuttle"]
 
 [dependencies]
 crossbeam-epoch = "0.9"
 parking_lot = "0.13"
 
 [target.'cfg(loom)'.dependencies]
-loom = "0.7"
+loom = { version = "0.7", optional = true }
 
 [target.'cfg(shuttle)'.dependencies]
-shuttle = "0.9"
+shuttle = { version = "0.9", optional = true }
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ["cfg(loom)", "cfg(shuttle)", "cfg(crossbeam_loom)", "cfg(xskiplist_tsan)"] }

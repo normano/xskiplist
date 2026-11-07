@@ -9,6 +9,7 @@ xskiplist = { path = "../..", features = ["verify"] }
 
 [target.'cfg(shuttle)'.dependencies]
 shuttle = "0.9"
+xskiplist = { path = "../..", features = ["shuttle"] }
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ["cfg(shuttle)"] }

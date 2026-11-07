@@ -9,6 +9,7 @@ xskiplist = { path = "../..", features = ["verify"] }
 
 [target.'cfg(loom)'.dependencies]
 loom = "0.7"
+xskiplist = { path = "../..", features = ["loom"] }
 # crossbeam-epoch runs on loom's primitives under --cfg crossbeam_loom, which also needs its loom feature.
 crossbeam-epoch = { version = "0.9", features = ["loom"] }
 
