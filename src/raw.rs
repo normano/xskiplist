@@ -577,7 +577,8 @@ impl<K, V> RawList<K, V> {
         }
         slot = 0;
         if len(x) == full {
-          self.split_node(x, half, path);
+          // A new first entry starts its own node, so descending inserts leave full nodes behind.
+          self.split_node(x, 0, path);
         }
       } else if slot == len(x0) {
         x = x0;
@@ -587,7 +588,9 @@ impl<K, V> RawList<K, V> {
             x = after;
             slot = 0;
           } else {
-            x = self.split_node(x0, half, path);
+            // A new last entry starts its own node, so ascending inserts leave full nodes behind.
+            let at = if after.is_null() { full } else { half };
+            x = self.split_node(x0, at, path);
             slot = len(x);
           }
         }
@@ -934,6 +937,19 @@ impl<K, V> RawList<K, V> {
     IntoNodes {
       head: list.head,
       nodes: list.nodes(),
+    }
+  }
+
+  #[cfg(test)]
+  pub(crate) fn node_count(&self) -> usize {
+    unsafe {
+      let mut count = 0;
+      let mut cur = next(self.head(), 0);
+      while !cur.is_null() {
+        count += 1;
+        cur = next(cur, 0);
+      }
+      count
     }
   }
 

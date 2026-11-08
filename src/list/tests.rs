@@ -225,3 +225,25 @@ fn every_value_dropped_once() {
   }
   assert_eq!(drops.get(), 3 + 47 + 50 + 50);
 }
+
+#[test]
+fn push_back_fills_nodes() {
+  let n = 10_000u64;
+  let mut l = SkipList::new();
+  for v in 0..n {
+    l.push_back(v);
+  }
+  assert_eq!(l.raw.node_count(), (n as usize).div_ceil(crate::node::cap::<u64, ()>()));
+  assert!(l.iter().copied().eq(0..n));
+}
+
+#[test]
+fn push_front_fills_nodes() {
+  let n = 10_000u64;
+  let mut l = SkipList::new();
+  for v in (0..n).rev() {
+    l.push_front(v);
+  }
+  assert_eq!(l.raw.node_count(), (n as usize).div_ceil(crate::node::cap::<u64, ()>()));
+  assert!(l.iter().copied().eq(0..n));
+}

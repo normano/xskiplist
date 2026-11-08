@@ -260,3 +260,25 @@ fn string_keys_borrow() {
   let keys: Vec<String> = map.iter().map(|e| e.key().clone()).collect();
   assert_eq!(keys, ["a"]);
 }
+
+#[test]
+fn ascending_inserts_fill_nodes() {
+  let n = 10_000u64;
+  let map = ConcurrentSkipMap::new();
+  for k in 0..n {
+    map.insert(k, k);
+  }
+  map.check_invariants();
+  assert_eq!(map.node_count(), (n as usize).div_ceil(super::CAP));
+}
+
+#[test]
+fn descending_inserts_fill_nodes() {
+  let n = 10_000u64;
+  let map = ConcurrentSkipMap::new();
+  for k in (0..n).rev() {
+    map.insert(k, k);
+  }
+  map.check_invariants();
+  assert_eq!(map.node_count(), (n as usize).div_ceil(super::CAP));
+}

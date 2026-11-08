@@ -454,3 +454,25 @@ fn split_halves_outlive_each_other() {
   rest.check_invariants();
   assert!(rest.keys().copied().eq(2000..4000));
 }
+
+#[test]
+fn ascending_inserts_fill_nodes() {
+  let n = 10_000u64;
+  let mut m = SkipMap::new();
+  for k in 0..n {
+    m.insert(k, k);
+  }
+  m.raw.check_invariants(|a, b| a < b);
+  assert_eq!(m.raw.node_count(), (n as usize).div_ceil(crate::node::cap::<u64, u64>()));
+}
+
+#[test]
+fn descending_inserts_fill_nodes() {
+  let n = 10_000u64;
+  let mut m = SkipMap::new();
+  for k in (0..n).rev() {
+    m.insert(k, k);
+  }
+  m.raw.check_invariants(|a, b| a < b);
+  assert_eq!(m.raw.node_count(), (n as usize).div_ceil(crate::node::cap::<u64, u64>()));
+}

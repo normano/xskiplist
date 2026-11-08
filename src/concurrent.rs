@@ -579,15 +579,24 @@ impl<K, V> ConcurrentSkipMap<K, V> {
         (*x).lock.unlock();
         return false;
       }
-      let half = CAP / 2;
       let first = next(self.head, 0) == x;
-      let n = alloc_node::<K, V>(h, Some((*slot(x, half).load(Ordering::Relaxed)).key.clone()));
-      for i in half..CAP {
-        slot(n, i - half).store(slot(x, i).load(Ordering::Relaxed), Ordering::Relaxed);
+      // A new last or first entry starts its own node, so monotonic inserts leave full nodes behind.
+      let at = if pos == CAP && next(x, 0).is_null() {
+        CAP
+      } else if pos == 0 && first {
+        0
+      } else {
+        CAP / 2
+      };
+      let into_new = pos > at || at == CAP;
+      let anchor = if at == CAP { (*entry).key.clone() } else { (*slot(x, at).load(Ordering::Relaxed)).key.clone() };
+      let n = alloc_node::<K, V>(h, Some(anchor));
+      for i in at..CAP {
+        slot(n, i - at).store(slot(x, i).load(Ordering::Relaxed), Ordering::Relaxed);
       }
-      let mut nlen = CAP - half;
-      if pos > half {
-        let p = pos - half;
+      let mut nlen = CAP - at;
+      if into_new {
+        let p = pos - at;
         for i in (p..nlen).rev() {
           slot(n, i + 1).store(slot(n, i).load(Ordering::Relaxed), Ordering::Relaxed);
         }
@@ -596,9 +605,9 @@ impl<K, V> ConcurrentSkipMap<K, V> {
       }
       (*n).len.store(nlen as u32, Ordering::Relaxed);
       begin_write(x);
-      let mut xlen = half;
-      if pos <= half {
-        for i in (pos..half).rev() {
+      let mut xlen = at;
+      if !into_new {
+        for i in (pos..at).rev() {
           slot(x, i + 1).store(slot(x, i).load(Ordering::Relaxed), Ordering::Relaxed);
         }
         slot(x, pos).store(entry, Ordering::Relaxed);
@@ -929,6 +938,19 @@ impl<K, V> ConcurrentSkipMap<K, V> {
       range,
       _guard: guard,
       marker: PhantomData,
+    }
+  }
+
+  #[cfg(test)]
+  pub(crate) fn node_count(&self) -> usize {
+    unsafe {
+      let mut count = 0;
+      let mut x = next(self.head, 0);
+      while !x.is_null() {
+        count += 1;
+        x = next(x, 0);
+      }
+      count
     }
   }
 
