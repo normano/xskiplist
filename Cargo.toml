@@ -1,6 +1,6 @@
 [package]
 name        = "xskiplist"
-version     = "0.9.0"
+version     = "0.9.1"
 authors     = ["Norm O <normo.pub@gmail.com>"]
 description = "High Performance Skip List collections: a sorted map, a sorted set, a sorted list with duplicates and an indexable list."
 keywords    = ["collection", "skiplist", "sorted", "map", "list"]
