@@ -14,7 +14,7 @@ How `ConcurrentSkipMap` and `ArenaSkipMap` compare with `crossbeam-skiplist` and
 
 ## Results
 
-Every cell is nanoseconds per operation per thread: the time a thread spends on one of its own operations while the other threads run theirs. Lower is better. A flat row across thread counts means the structure scales. The five numbers in a cell are 1 / 2 / 4 / 8 / 14 threads on a 14-core machine (10 performance cores, 4 efficiency cores).
+Every cell is nanoseconds per operation per thread: the time a thread spends on one of its own operations while the other threads run theirs. Lower is better. A flat row across thread counts means the structure scales. ◆ marks this crate's maps. The fastest skip list at each thread count is bold; `RwLock<BTreeMap>` is a yardstick and is not ranked. The five numbers in a cell are 1 / 2 / 4 / 8 / 14 threads on a 14-core machine (10 performance cores, 4 efficiency cores).
 
 The competitors are `crossbeam-skiplist` 0.1 (`SkipMap`), `parking_lot::RwLock<BTreeMap>` and `parking_lot::Mutex<xskiplist::SkipMap>`. The map holds 100k keys. All runs were taken on 2026-11-07, one pass of 10 s per cell, in high-power mode, with the machine otherwise idle apart from the run itself.
 
@@ -24,11 +24,11 @@ Half the lookups hit, half miss.
 
 | map | 1 / 2 / 4 / 8 / 14 threads |
 |---|---|
-| ConcurrentSkipMap | 116.7 / 121.2 / 122.9 / 128.8 / 160.4 |
-| ArenaSkipMap | 126.1 / 128.8 / 128.6 / 130.7 / 158.2 |
+| ConcurrentSkipMap ◆ | 116.7 / **121.2** / **122.9** / **128.8** / 160.4 |
+| ArenaSkipMap ◆ | 126.1 / 128.8 / 128.6 / 130.7 / **158.2** |
 | crossbeam-skiplist | 121.6 / 128.7 / 139.0 / 143.6 / 184.1 |
-| RwLock<BTreeMap> | 67.2 / 86.8 / 207.9 / 811.2 / 3584.5 |
-| Mutex<SkipMap> | 98.1 / 266.5 / 726.5 / 1546.2 / 2552.0 |
+| RwLock<BTreeMap> | 67.2 / 86.8 / 207.9 / 811.2 / 3,584.5 |
+| Mutex<SkipMap> | **98.1** / 266.5 / 726.5 / 1,546.2 / 2,552.0 |
 
 The lock-wrapped maps are fastest alone and collapse as soon as two threads contend. The three lock-free readers stay within 1.5x of their single-thread cost at 14 threads.
 
@@ -38,18 +38,18 @@ Each operation picks a random key; a write is an insert or a remove with equal p
 
 | workload | map | 1 / 2 / 4 / 8 / 14 threads |
 |---|---|---|
-| 90% reads | ConcurrentSkipMap | 135.1 / 145.0 / 150.3 / 146.9 / 194.5 |
+| 90% reads | ConcurrentSkipMap ◆ | 135.1 / **145.0** / **150.3** / **146.9** / **194.5** |
 | | crossbeam-skiplist | 179.5 / 195.3 / 210.9 / 237.4 / 335.2 |
-| | RwLock<BTreeMap> | 67.4 / 112.8 / 294.9 / 1258.1 / 3370.5 |
-| | Mutex<SkipMap> | 102.6 / 304.5 / 765.3 / 1607.3 / 2486.0 |
-| 50% reads | ConcurrentSkipMap | 146.8 / 169.2 / 196.3 / 225.2 / 283.8 |
+| | RwLock<BTreeMap> | 67.4 / 112.8 / 294.9 / 1,258.1 / 3,370.5 |
+| | Mutex<SkipMap> | **102.6** / 304.5 / 765.3 / 1,607.3 / 2,486.0 |
+| 50% reads | ConcurrentSkipMap ◆ | 146.8 / **169.2** / **196.3** / **225.2** / **283.8** |
 | | crossbeam-skiplist | 235.7 / 288.3 / 348.7 / 463.7 / 760.4 |
-| | RwLock<BTreeMap> | 71.4 / 161.5 / 458.4 / 1407.3 / 3493.2 |
-| | Mutex<SkipMap> | 106.3 / 328.4 / 814.2 / 1754.2 / 2807.3 |
-| writes only | ConcurrentSkipMap | 157.5 / 173.2 / 205.0 / 268.8 / 401.3 |
-| | crossbeam-skiplist | 298.2 / 372.4 / 527.2 / 748.7 / 1301.9 |
-| | RwLock<BTreeMap> | 73.1 / 211.5 / 506.7 / 1102.8 / 1891.1 |
-| | Mutex<SkipMap> | 101.4 / 300.9 / 784.1 / 1682.6 / 2641.1 |
+| | RwLock<BTreeMap> | 71.4 / 161.5 / 458.4 / 1,407.3 / 3,493.2 |
+| | Mutex<SkipMap> | **106.3** / 328.4 / 814.2 / 1,754.2 / 2,807.3 |
+| writes only | ConcurrentSkipMap ◆ | 157.5 / **173.2** / **205.0** / **268.8** / **401.3** |
+| | crossbeam-skiplist | 298.2 / 372.4 / 527.2 / 748.7 / 1,301.9 |
+| | RwLock<BTreeMap> | 73.1 / 211.5 / 506.7 / 1,102.8 / 1,891.1 |
+| | Mutex<SkipMap> | **101.4** / 300.9 / 784.1 / 1,682.6 / 2,641.1 |
 
 Writers in `ConcurrentSkipMap` lock one node of 32 entries, so two writers collide only when they land in the same node. crossbeam-skiplist links one node per entry with a compare-and-swap per level. Its write cost grows with every thread added.
 
@@ -59,11 +59,11 @@ Each scan reads 100 consecutive entries from a random start. From two threads up
 
 | map | 1 / 2 / 4 / 8 / 14 threads |
 |---|---|
-| ConcurrentSkipMap | 501.4 / 258.5 / 435.1 / 579.6 / 891.7 |
-| ArenaSkipMap | 253.4 / 103.8 / 151.7 / 195.9 / 259.2 |
-| crossbeam-skiplist | 777.4 / 532.6 / 1004.9 / 2148.2 / 4087.7 |
-| RwLock<BTreeMap> | 300.0 / 206.5 / 563.5 / 2337.4 / 3426.6 |
-| Mutex<SkipMap> | 191.2 / 469.5 / 1175.9 / 2689.5 / 4275.6 |
+| ConcurrentSkipMap ◆ | 501.4 / 258.5 / 435.1 / 579.6 / 891.7 |
+| ArenaSkipMap ◆ | 253.4 / **103.8** / **151.7** / **195.9** / **259.2** |
+| crossbeam-skiplist | 777.4 / 532.6 / 1,004.9 / 2,148.2 / 4,087.7 |
+| RwLock<BTreeMap> | 300.0 / 206.5 / 563.5 / 2,337.4 / 3,426.6 |
+| Mutex<SkipMap> | **191.2** / 469.5 / 1,175.9 / 2,689.5 / 4,275.6 |
 
 A scan over `ConcurrentSkipMap` copies a node's 32 entry pointers once and walks them; over `ArenaSkipMap` it follows nodes allocated in insertion order. crossbeam-skiplist follows one pointer per entry and pins the epoch for every one.
 
@@ -73,11 +73,11 @@ Each thread inserts fresh distinct keys into an empty map, a new map every milli
 
 | map | 1 / 2 / 4 / 8 / 14 threads |
 |---|---|
-| ConcurrentSkipMap | 325.8 / 337.6 / 419.6 / 528.0 / 927.7 |
-| ArenaSkipMap | 268.1 / 284.4 / 351.6 / 577.6 / 1161.3 |
-| crossbeam-skiplist | 398.5 / 527.6 / 685.2 / 1206.4 / 2174.2 |
-| RwLock<BTreeMap> | 137.7 / 386.0 / 971.1 / 2100.6 / 3541.3 |
-| Mutex<SkipMap> | 198.2 / 601.1 / 2121.6 / 5846.7 / 9606.9 |
+| ConcurrentSkipMap ◆ | 325.8 / 337.6 / 419.6 / **528.0** / **927.7** |
+| ArenaSkipMap ◆ | 268.1 / **284.4** / **351.6** / 577.6 / 1,161.3 |
+| crossbeam-skiplist | 398.5 / 527.6 / 685.2 / 1,206.4 / 2,174.2 |
+| RwLock<BTreeMap> | 137.7 / 386.0 / 971.1 / 2,100.6 / 3,541.3 |
+| Mutex<SkipMap> | **198.2** / 601.1 / 2,121.6 / 5,846.7 / 9,606.9 |
 
 ## Methodology
 

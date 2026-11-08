@@ -53,36 +53,39 @@ xskiplist = "0.9"
 
 ## Benchmarks
 
-Nanoseconds per operation, lower is better. One pass of 10 s per cell on an Apple M4 Pro in high-power mode, 2026-11-07. The gain is the other structure's time divided by ours, minus one.
+Nanoseconds per operation, lower is better. One pass of 10 s per cell on an Apple M4 Pro in high-power mode, 2026-11-07. 
+* The gain is the other structure's time divided by ours, minus one. ◆ marks this crate's structures. 
+* The fastest skip list at each size or thread count is bold; `std` is a yardstick and is not ranked.
 
 ### Single-threaded
 
-Structures of 100k elements; `original` is `skiplist` 2.0.1 and `std` is `BTreeMap` or `BTreeSet`.
+Structures of 100k elements; `rust-skiplist` is `skiplist` 2.0.1 on crates.io and `std` is `BTreeMap` or `BTreeSet`.
 
-| operation | original ns | xskiplist ns | std ns | vs original | vs std |
+| operation | xskiplist ns ◆ | rust-skiplist ns | vs rust-skiplist | std ns | vs std |
 |---|---|---|---|---|---|
-| map lookup | 70.4 | 24.3 | 14.1 | +190% | -42% |
-| map insert and remove | 187.4 | 83.6 | 43.5 | +124% | -48% |
-| map iterate, whole structure | 2116333.9 | 49607.8 | 72782.4 | +4166% | +47% |
-| map split and join | 252.7 | 100.8 | 620150.3 | +151% | +615128% |
-| set lookup | 76.6 | 24.0 | 13.2 | +219% | -45% |
-| set iterate, whole structure | 2162478.3 | 42099.6 | 192682.3 | +5037% | +358% |
-| ordered list rank | 79.9 | 29.1 | - | +175% | - |
-| list get by index | 77.7 | 15.7 | - | +395% | - |
-| list insert and remove by index | 188.5 | 61.1 | - | +209% | - |
+| map lookup | **24.3** | 70.4 | +190% | 14.1 | -42% |
+| map insert and remove | **83.6** | 187.4 | +124% | 43.5 | -48% |
+| map iterate, whole structure | **49,607.8** | 2,116,333.9 | +4,166% | 72,782.4 | +47% |
+| map split and join | **100.8** | 252.7 | +151% | 620,150.3 | +615,128% |
+| set lookup | **24.0** | 76.6 | +219% | 13.2 | -45% |
+| set iterate, whole structure | **42,099.6** | 2,162,478.3 | +5,037% | 192,682.3 | +358% |
+| ordered list rank | **29.1** | 79.9 | +175% | - | - |
+| list get by index | **15.7** | 77.7 | +395% | - | - |
+| list insert and remove by index | **61.1** | 188.5 | +209% | - | - |
 
 ### Multi-threaded
 
-Maps of 100k entries, half of the lookups missing; cells hold 1 / 4 / 14 threads on 14 cores. The competitor is `crossbeam-skiplist` 0.1.
+Maps of 100k entries, half of the lookups missing; cells hold 1 / 4 / 14 threads on 14 cores. The competitor is `crossbeam-skiplist` 0.1. 
+* `ArenaSkipMap` cannot remove, so it has no cells in the mixed and write-only workloads.
 
-| workload | crossbeam ns | ConcurrentSkipMap ns | ArenaSkipMap ns | Concurrent vs crossbeam | Arena vs crossbeam |
+| workload | ConcurrentSkipMap ns ◆ | ArenaSkipMap ns ◆ | crossbeam ns | Concurrent vs crossbeam | Arena vs crossbeam |
 |---|---|---|---|---|---|
-| point reads, half missing | 121.6 / 139.0 / 184.1 | 116.7 / 122.9 / 160.4 | 126.1 / 128.6 / 158.2 | +4% / +13% / +15% | -4% / +8% / +16% |
-| 90% reads, 10% writes | 179.5 / 210.9 / 335.2 | 135.1 / 150.3 / 194.5 | - | +33% / +40% / +72% | - |
-| 50% reads, 50% writes | 235.7 / 348.7 / 760.4 | 146.8 / 196.3 / 283.8 | - | +61% / +78% / +168% | - |
-| writes only | 298.2 / 527.2 / 1301.9 | 157.5 / 205.0 / 401.3 | - | +89% / +157% / +224% | - |
-| 100-entry range scan under writes | 777.4 / 1004.9 / 4087.7 | 501.4 / 435.1 / 891.7 | 253.4 / 151.7 / 259.2 | +55% / +131% / +358% | +207% / +562% / +1477% |
-| fill an empty map | 398.5 / 685.2 / 2174.2 | 325.8 / 419.6 / 927.7 | 268.1 / 351.6 / 1161.3 | +22% / +63% / +134% | +49% / +95% / +87% |
+| point reads, half missing | **116.7** / **122.9** / 160.4 | 126.1 / 128.6 / **158.2** | 121.6 / 139.0 / 184.1 | +4% / +13% / +15% | -4% / +8% / +16% |
+| 90% reads, 10% writes | **135.1** / **150.3** / **194.5** | - | 179.5 / 210.9 / 335.2 | +33% / +40% / +72% | - |
+| 50% reads, 50% writes | **146.8** / **196.3** / **283.8** | - | 235.7 / 348.7 / 760.4 | +61% / +78% / +168% | - |
+| writes only | **157.5** / **205.0** / **401.3** | - | 298.2 / 527.2 / 1,301.9 | +89% / +157% / +224% | - |
+| 100-entry range scan under writes | 501.4 / 435.1 / 891.7 | **253.4** / **151.7** / **259.2** | 777.4 / 1,004.9 / 4,087.7 | +55% / +131% / +358% | +207% / +562% / +1,477% |
+| fill an empty map | 325.8 / 419.6 / **927.7** | **268.1** / **351.6** / 1,161.3 | 398.5 / 685.2 / 2,174.2 | +22% / +63% / +134% | +49% / +95% / +87% |
 
 ## Verification
 
