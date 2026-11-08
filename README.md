@@ -53,7 +53,7 @@ xskiplist = "0.9"
 
 ## Benchmarks
 
-Nanoseconds per operation, lower is better. One pass of 10 s per cell on an Apple M4 Pro in high-power mode, 2026-11-07. 
+Nanoseconds per operation, lower is better. One pass of 10 s per cell on an Apple M4 Pro in high-power mode. 
 * The gain is the other structure's time divided by ours, minus one. ◆ marks this crate's structures. 
 * The fastest skip list at each size or thread count is bold; `std` is a yardstick and is not ranked.
 
@@ -84,7 +84,7 @@ Maps of 100k entries, half of the lookups missing; cells hold 1 / 4 / 14 threads
 | 90% reads, 10% writes | **135.1** / **150.3** / **194.5** | - | 179.5 / 210.9 / 335.2 | +33% / +40% / +72% | - |
 | 50% reads, 50% writes | **146.8** / **196.3** / **283.8** | - | 235.7 / 348.7 / 760.4 | +61% / +78% / +168% | - |
 | writes only | **157.5** / **205.0** / **401.3** | - | 298.2 / 527.2 / 1,301.9 | +89% / +157% / +224% | - |
-| 100-entry range scan under writes | 501.4 / 435.1 / 891.7 | **253.4** / **151.7** / **259.2** | 777.4 / 1,004.9 / 4,087.7 | +55% / +131% / +358% | +207% / +562% / +1,477% |
+| 100-entry range scan under writes | 501.4 / 435.1 / 891.7 | **232.4** / **310.3** / **551.5** | 777.4 / 1,004.9 / 4,087.7 | +55% / +131% / +358% | +235% / +224% / +641% |
 | fill an empty map | 325.8 / 419.6 / **927.7** | **268.1** / **351.6** / 1,161.3 | 398.5 / 685.2 / 2,174.2 | +22% / +63% / +134% | +49% / +95% / +87% |
 
 ## Verification

@@ -16,7 +16,7 @@ How `ConcurrentSkipMap` and `ArenaSkipMap` compare with `crossbeam-skiplist` and
 
 Every cell is nanoseconds per operation per thread: the time a thread spends on one of its own operations while the other threads run theirs. Lower is better. A flat row across thread counts means the structure scales. ◆ marks this crate's maps. The fastest skip list at each thread count is bold; `RwLock<BTreeMap>` is a yardstick and is not ranked. The five numbers in a cell are 1 / 2 / 4 / 8 / 14 threads on a 14-core machine (10 performance cores, 4 efficiency cores).
 
-The competitors are `crossbeam-skiplist` 0.1 (`SkipMap`), `parking_lot::RwLock<BTreeMap>` and `parking_lot::Mutex<xskiplist::SkipMap>`. The map holds 100k keys. All runs were taken on 2026-11-07, one pass of 10 s per cell, in high-power mode, with the machine otherwise idle apart from the run itself.
+The competitors are `crossbeam-skiplist` 0.1 (`SkipMap`), `parking_lot::RwLock<BTreeMap>` and `parking_lot::Mutex<xskiplist::SkipMap>`. The map holds 100k keys. All runs are one pass of 10 s per cell, in high-power mode, with the machine otherwise idle apart from the run itself.
 
 ### Point reads
 
@@ -55,12 +55,12 @@ Writers in `ConcurrentSkipMap` lock one node of 32 entries, so two writers colli
 
 ### Range scans under writes
 
-Each scan reads 100 consecutive entries from a random start. From two threads up, one thread inserts and removes while the others scan.
+Each scan reads 100 consecutive entries from a random start. From two threads up, one thread inserts and removes while the others scan. `ArenaSkipMap` cannot remove, so its writer only inserts.
 
 | map | 1 / 2 / 4 / 8 / 14 threads |
 |---|---|
 | ConcurrentSkipMap ◆ | 501.4 / 258.5 / 435.1 / 579.6 / 891.7 |
-| ArenaSkipMap ◆ | 253.4 / **103.8** / **151.7** / **195.9** / **259.2** |
+| ArenaSkipMap ◆ | 232.4 / **215.8** / **310.3** / **394.3** / **551.5** |
 | crossbeam-skiplist | 777.4 / 532.6 / 1,004.9 / 2,148.2 / 4,087.7 |
 | RwLock<BTreeMap> | 300.0 / 206.5 / 563.5 / 2,337.4 / 3,426.6 |
 | Mutex<SkipMap> | **191.2** / 469.5 / 1,175.9 / 2,689.5 / 4,275.6 |

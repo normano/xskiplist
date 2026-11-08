@@ -54,7 +54,7 @@ impl ConcMap for xskiplist::ArenaSkipMap<u64, u64> {
     self.get(&key).copied()
   }
   fn remove(&self, _key: u64) -> bool {
-    false
+    unreachable!("ArenaSkipMap cannot remove")
   }
   fn range_sum(&self, lo: u64, count: usize) -> u64 {
     self.range(lo..).take(count).map(|(_, v)| *v).sum()
@@ -223,7 +223,7 @@ fn range<M: ConcMap>() -> Cell {
         let r = rng.next();
         let key = (r >> 8) % span;
         if t == 0 && threads > 1 {
-          if r & 0x100 == 0 {
+          if !M::REMOVES || r & 0x100 == 0 {
             m.insert(key, key);
           } else {
             black_box(m.remove(key));

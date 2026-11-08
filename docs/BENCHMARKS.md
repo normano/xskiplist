@@ -16,7 +16,7 @@ How `SkipMap`, `SkipSet`, `OrderedSkipList` and `SkipList` compare with `rust-sk
 
 Every cell is nanoseconds per step on a prebuilt structure of 1k or 100k elements, written `1k / 100k`. Lower is better. ◆ marks this crate's column. The fastest skip list at each size is bold; `std` is a yardstick and is not ranked. The gain columns are the other structure's time divided by ours, minus one: positive means ours is faster, negative slower. `rust-skiplist` is the `skiplist` crate, 2.0.1; `std` is `BTreeMap` or `BTreeSet`, which have no counterpart for the ordered list or the indexed list.
 
-All runs were taken on 2026-11-07, one pass of 10 s per cell, in high-power mode on an Apple M4 Pro.
+All runs are one pass of 10 s per cell, in high-power mode on an Apple M4 Pro.
 
 ### Map
 
